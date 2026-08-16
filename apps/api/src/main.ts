@@ -1,9 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { Logger } from 'nestjs-pino';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Use Pino Logger
+  app.useLogger(app.get(Logger));
 
   // Enable CORS for frontend communication
   app.enableCors({
