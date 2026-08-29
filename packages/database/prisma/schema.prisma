@@ -28,3 +28,14 @@ enum DocumentStatus {
   READY
   FAILED
 }
+
+model KnowledgeBase {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
+}
