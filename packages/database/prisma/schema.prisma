@@ -37,5 +37,19 @@ model KnowledgeBase {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  agents         AgentKnowledgeBase[]
+
   @@index([organizationId])
+}
+
+model AgentKnowledgeBase {
+  agentId         String
+  knowledgeBaseId String
+  createdAt       DateTime @default(now())
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, knowledgeBaseId])
+  @@index([agentId])
+  @@index([knowledgeBaseId])
 }
