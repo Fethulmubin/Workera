@@ -69,6 +69,20 @@ model Document {
   updatedAt          DateTime       @updatedAt
 
   knowledgeBase KnowledgeBase   @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks        DocumentChunk[]
 
   @@index([knowledgeBaseId])
+}
+
+model DocumentChunk {
+  id         String                      @id @default(cuid())
+  documentId String
+  content    String
+  chunkIndex Int
+  embedding  Unsupported("vector(768)")?
+  createdAt  DateTime                    @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
 }
