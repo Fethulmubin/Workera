@@ -38,6 +38,7 @@ model KnowledgeBase {
   updatedAt      DateTime @updatedAt
 
   agents         AgentKnowledgeBase[]
+  documents      Document[]
 
   @@index([organizationId])
 }
@@ -51,5 +52,23 @@ model AgentKnowledgeBase {
 
   @@id([agentId, knowledgeBaseId])
   @@index([agentId])
+  @@index([knowledgeBaseId])
+}
+
+model Document {
+  id                 String         @id @default(cuid())
+  knowledgeBaseId    String
+  title              String
+  fileUrl            String?
+  cloudinaryPublicId String?
+  fileType           String?
+  fileSize           Int?
+  status             DocumentStatus @default(PENDING)
+  errorMessage       String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  knowledgeBase KnowledgeBase   @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
   @@index([knowledgeBaseId])
 }
