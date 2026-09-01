@@ -29,6 +29,50 @@ enum DocumentStatus {
   FAILED
 }
 
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        OrganizationMember[]
+  agents         Agent[]
+  knowledgeBases KnowledgeBase[]
+}
+
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(MEMBER)
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model Agent {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  type           AgentType @default(CUSTOM)
+  systemPrompt   String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  knowledgeBases AgentKnowledgeBase[]
+  conversations  Conversation[]
+
+  @@index([organizationId])
+}
+
 model KnowledgeBase {
   id             String   @id @default(cuid())
   organizationId String
@@ -37,8 +81,9 @@ model KnowledgeBase {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  agents         AgentKnowledgeBase[]
-  documents      Document[]
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agents       AgentKnowledgeBase[]
+  documents    Document[]
 
   @@index([organizationId])
 }
@@ -48,6 +93,7 @@ model AgentKnowledgeBase {
   knowledgeBaseId String
   createdAt       DateTime @default(now())
 
+  agent         Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
 
   @@id([agentId, knowledgeBaseId])
@@ -88,27 +134,28 @@ model DocumentChunk {
 }
 
 model Conversation {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
   agentId        String
   title          String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  messages       Message[]
+  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages Message[]
 
   @@index([organizationId, agentId])
 }
 
 model Message {
-  id             String       @id @default(cuid())
+  id             String   @id @default(cuid())
   conversationId String
-  role           String
-  content        String       @db.Text
-  citations      Json?
-  createdAt      DateTime     @default(now())
+  role           String // 'user' | 'assistant' | 'system'
+  content        String   @db.Text
+  citations      Json? // Array of cited chunk IDs and document titles
+  createdAt      DateTime @default(now())
 
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
 }
