@@ -12,4 +12,28 @@ export class EmbeddingService {
     this.openRouterModel =
       this.configService.get<string>('OPENROUTER_EMBED_MODEL') || 'baai/bge-base-en-v1.5';
   }
+
+  private async generateOpenRouterBatch(texts: string[]): Promise<number[][]> {
+    const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.openRouterApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.openRouterModel,
+        input: texts,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenRouter API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.data
+      .sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+      .map((item: any) => item.embedding);
+  }
 }
