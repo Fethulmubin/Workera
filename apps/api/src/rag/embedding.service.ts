@@ -1,39 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 @Injectable()
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
+  private readonly genAI?: GoogleGenerativeAI;
   private readonly openRouterApiKey?: string;
   private readonly openRouterModel: string;
+  private readonly geminiModel = 'text-embedding-004';
 
   constructor(private readonly configService: ConfigService) {
-    this.openRouterApiKey = this.configService.get<string>('OPENROUTER_API_KEY');
-    this.openRouterModel =
-      this.configService.get<string>('OPENROUTER_EMBED_MODEL') || 'baai/bge-base-en-v1.5';
-  }
-
-  private async generateOpenRouterBatch(texts: string[]): Promise<number[][]> {
-    const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.openRouterApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: this.openRouterModel,
-        input: texts,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenRouter API error (${response.status}): ${errorText}`);
+    const geminiKey = this.configService.get<string>('GEMINI_API_KEY');
+    if (geminiKey) {
+      this.genAI = new GoogleGenerativeAI(geminiKey);
     }
 
-    const data = await response.json();
-    return data.data
-      .sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
-      .map((item: any) => item.embedding);
+    this.openRouterApiKey = this.configService.get<string>('OPENROUTER_API_KEY');
+    let model =
+      this.configService.get<string>('OPENROUTER_EMBED_MODEL') || 'baai/bge-base-en-v1.5';
+    if (model.includes('nemotron') || model.includes('2048')) {
+      model = 'baai/bge-base-en-v1.5';
+    }
+    this.openRouterModel = model;
   }
 }
