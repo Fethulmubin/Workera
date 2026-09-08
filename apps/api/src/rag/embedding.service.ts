@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
 
 @Injectable()
 export class EmbeddingService {
@@ -15,13 +15,23 @@ export class EmbeddingService {
     if (geminiKey) {
       this.genAI = new GoogleGenerativeAI(geminiKey);
     }
-
     this.openRouterApiKey = this.configService.get<string>('OPENROUTER_API_KEY');
-    let model =
-      this.configService.get<string>('OPENROUTER_EMBED_MODEL') || 'baai/bge-base-en-v1.5';
-    if (model.includes('nemotron') || model.includes('2048')) {
-      model = 'baai/bge-base-en-v1.5';
+    this.openRouterModel = 'baai/bge-base-en-v1.5';
+  }
+
+  private async generateGeminiBatch(texts: string[]): Promise<number[][]> {
+    if (!this.genAI) throw new Error('Gemini AI not initialized');
+    const model = this.genAI.getGenerativeModel({ model: this.geminiModel });
+    const results: number[][] = [];
+
+    for (const text of texts) {
+      const response = await model.embedContent({
+        content: { parts: [{ text }], role: 'user' },
+        taskType: TaskType.RETRIEVAL_DOCUMENT,
+      });
+      results.push(response.embedding.values);
     }
-    this.openRouterModel = model;
+
+    return results;
   }
 }
