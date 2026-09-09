@@ -32,4 +32,31 @@ export class VectorStoreService {
       vectorString,
     );
   }
+
+  async similaritySearch(
+    organizationId: string,
+    queryEmbedding: number[],
+    limit = 5,
+    matchThreshold = 0.4,
+    agentId?: string,
+  ): Promise<RetrievedChunk[]> {
+    const vectorString = `[${queryEmbedding.join(',')}]`;
+
+    const results = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT * FROM match_document_chunks($1::vector, $2::float, $3::int, $4::text, $5::text)`,
+      vectorString,
+      matchThreshold,
+      limit,
+      organizationId,
+      agentId ?? null,
+    );
+
+    return results.map((r) => ({
+      id: r.id,
+      documentId: r.document_id,
+      documentTitle: r.document_title,
+      content: r.content,
+      similarity: Number(r.similarity),
+    }));
+  }
 }
