@@ -17,4 +17,16 @@ export class KnowledgeBaseService {
       },
     });
   }
+
+  async listKnowledgeBases(organizationId: string) {
+    return this.prisma.knowledgeBase.findMany({
+      where: { organizationId },
+      include: {
+        _count: {
+          select: { documents: true, agents: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }
