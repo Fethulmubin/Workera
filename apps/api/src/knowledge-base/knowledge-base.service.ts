@@ -87,5 +87,93 @@ export class KnowledgeBaseService {
   try {
     cloudResult = await this.cloudinaryService.uploadFile(file);
   } catch (err: any) {
-    throw new Interna
+    throw new InternalServerErrorException(`Cloudinary upload failed: ${err.message}`);
+  }
+
+  // 2. Create Document record with PROCESSING status
+  const doc = await this.prisma.document.create({
+    data: {
+      knowledgeBaseId: kbId,
+      title: file.originalname,
+      fileUrl: cloudResult.secure_url,
+      cloudinaryPublicId: cloudResult.public_id,
+      fileType: file.mimetype,
+      fileSize: file.size,
+      status: DocumentStatus.PROCESSING,
+    },
+  });
+
+  // 3. Extract text (FIXED SECTION)
+  let rawText = '';
+  try {
+    if (file.mimetype === 'application/pdf') {
+      // Correct usage for pdf-parse v2
+      const parser = new PDFParse({ data: file.buffer });
+      const result = await parser.getText(); 
+      rawText = result.text; // Extract the text property
+      await parser.destroy(); // Clean up resources
+    } else {
+      rawText = file.buffer.toString('utf-8');
+    }
+  } catch (error: any) {
+    await this.prisma.document.update({
+      where: { id: doc.id },
+      data: { status: DocumentStatus.FAILED, errorMessage: `PDF Parse Error: ${error.message}` },
+    });
+    throw new BadRequestException(`Failed to parse PDF: ${error.message}`);
+  }
+
+  if (!rawText || !rawText.trim()) {
+    await this.prisma.document.update({
+      where: { id: doc.id },
+      data: { status: DocumentStatus.FAILED, errorMessage: 'File contains no readable text' },
+    });
+    throw new BadRequestException('Uploaded document contains no readable text');
+  }
+
+  // 4. Chunk text
+  const chunks = chunkText(rawText);
+
+  // 5. Generate embeddings via Gemini & insert into pgvector
+  try {
+    const textsToEmbed = chunks.map((c) => c.content);
+    const embeddings = await this.embeddingService.generateEmbeddings(textsToEmbed);
+
+    for (let i = 0; i < chunks.length; i++) {
+      await this.vectorStoreService.storeChunkWithEmbedding(
+        doc.id,
+        chunks[i].content,
+        chunks[i].chunkIndex,
+        embeddings[i],
+      );
+    }
+
+    return await this.prisma.document.update({
+      where: { id: doc.id },
+      data: { status: DocumentStatus.READY },
+    });
+  } catch (error: any) {
+    await this.prisma.document.update({
+      where: { id: doc.id },
+      data: { status: DocumentStatus.FAILED, errorMessage: error.message },
+    });
+    throw new InternalServerErrorException(`Embedding generation failed: ${error.message}`);
+  }
+}   
+  async searchKnowledge(
+    organizationId: string,
+    query: string,
+    agentId?: string,
+    limit = 5,
+    threshold = 0.4,
+  ) {
+    const queryEmbedding = await this.embeddingService.generateQueryEmbedding(query);
+    return this.vectorStoreService.similaritySearch(
+      organizationId,
+      queryEmbedding,
+      limit,
+      threshold,
+      agentId,
+    );
+  }
 }
