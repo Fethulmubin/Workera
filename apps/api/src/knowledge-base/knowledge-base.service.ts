@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 
@@ -27,6 +27,22 @@ export class KnowledgeBaseService {
         },
       },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async linkAgent(organizationId: string, knowledgeBaseId: string, agentId: string) {
+    const existing = await this.prisma.agentKnowledgeBase.findUnique({
+      where: {
+        agentId_knowledgeBaseId: { agentId, knowledgeBaseId },
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException('Agent is already linked to this Knowledge Base');
+    }
+
+    return this.prisma.agentKnowledgeBase.create({
+      data: { agentId, knowledgeBaseId },
     });
   }
 }
