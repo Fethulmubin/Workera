@@ -1,4 +1,15 @@
-import { Controller, Post, Get, Body, Param, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { LinkAgentDto } from './dto/link-agent.dto';
@@ -32,5 +43,24 @@ export class KnowledgeBaseController {
     @Body() dto: LinkAgentDto,
   ) {
     return this.kbService.linkAgent(tenant.organizationId, kbId, dto.agentId);
+  }
+
+  @Post(':id/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadDocument(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') kbId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.kbService.uploadAndProcessDocument(tenant.organizationId, kbId, file);
+  }
+
+  @Get('search')
+  async search(
+    @CurrentTenant() tenant: TenantContext,
+    @Query('q') query: string,
+    @Query('agentId') agentId?: string,
+  ) {
+    return this.kbService.searchKnowledge(tenant.organizationId, query, agentId);
   }
 }
