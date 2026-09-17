@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
@@ -14,5 +14,18 @@ export class AgentExecutionService {
   ) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
     this.genAI = new GoogleGenerativeAI(apiKey);
+  }
+
+  async executeChat(
+    organizationId: string,
+    agentId: string,
+    userMessage: string,
+    conversationId?: string,
+  ) {
+    const agent = await this.prisma.agent.findFirst({
+      where: { id: agentId, organizationId },
+      include: { knowledgeBases: true },
+    });
+    if (!agent) throw new NotFoundException('Agent not found in this organization');
   }
 }
