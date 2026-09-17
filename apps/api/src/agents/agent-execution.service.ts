@@ -27,5 +27,25 @@ export class AgentExecutionService {
       include: { knowledgeBases: true },
     });
     if (!agent) throw new NotFoundException('Agent not found in this organization');
+
+    let activeConversationId = conversationId;
+    if (!activeConversationId) {
+      const conv = await this.prisma.conversation.create({
+        data: {
+          organizationId,
+          agentId,
+          title: userMessage.slice(0, 40),
+        },
+      });
+      activeConversationId = conv.id;
+    }
+
+    await this.prisma.message.create({
+      data: {
+        conversationId: activeConversationId,
+        role: 'user',
+        content: userMessage,
+      },
+    });
   }
 }
