@@ -1,13 +1,17 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   Param,
+  Res,
   Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { Observable } from 'rxjs';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
@@ -20,12 +24,9 @@ import { AgentExecutionService } from './agent-execution.service';
 @Controller('agents')
 @UseGuards(JwtAuthGuard, TenantGuard)
 export class AgentsController {
-  constructor(
-    private readonly agentsService: AgentsService,
-    private readonly agentExecutionService: AgentExecutionService,
-  ) {}
-
-@Post()
+  constructor(private readonly agentsService: AgentsService,
+    private readonly agentExecutionService: AgentExecutionService) {}
+  @Post()
   async create(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateAgentDto,
@@ -62,4 +63,68 @@ export class AgentsController {
   ) {
     return this.agentsService.deleteAgent(tenant.organizationId, agentId);
   }
+
+  @Post(':id/chat')
+async chatWithAgent(
+  @CurrentTenant() tenant: TenantContext,
+  @Param('id') agentId: string,
+  @Body() body: { message: string; conversationId?: string },
+) {
+  if (!body.message) {
+    throw new BadRequestException('Message is required');
+  }
+  return this.agentExecutionService.executeChat(
+    tenant.organizationId,
+    agentId,
+    body.message,
+    body.conversationId,
+  );
+}
+
+@Post(':id/chat/stream')
+chatStreamWithAgent(
+  @CurrentTenant() tenant: TenantContext,
+  @Param('id') agentId: string,
+  @Body() body: { message: string; conversationId?: string },
+  @Res() res: Response,
+): void {
+  if (!body.message) {
+    throw new BadRequestException('Message is required');
+  }
+
+  // 1. Set standard SSE headers for chunked HTTP streaming
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disables Nginx buffering if deployed behind a proxy
+
+  // 2. Fetch the stream from service
+  const stream$ = this.agentExecutionService.executeChatStream(
+    tenant.organizationId,
+    agentId,
+    body.message,
+    body.conversationId,
+  );
+
+  // 3. Subscribe to the Observable and write SSE formatted data blocks
+  const subscription = stream$.subscribe({
+    next: (event) => {
+      res.write(`data: ${event.data}\n\n`);
+    },
+    error: (err) => {
+      res.write(
+        `data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`,
+      );
+      res.end();
+    },
+    complete: () => {
+      res.end();
+    },
+  });
+
+  // 4. Handle premature client disconnects (e.g., closing browser tab or canceling request)
+  res.on('close', () => {
+    subscription.unsubscribe();
+  });
+}
 }
