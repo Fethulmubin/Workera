@@ -298,6 +298,4 @@ INSTRUCTIONS:
 
     return stream$.asObservable();
   }
-
-  }
 }
