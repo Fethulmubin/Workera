@@ -15,13 +15,17 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenant/tenant.guard';
 import { CurrentTenant } from '../tenant/current-tenant.decorator';
 import type { TenantContext } from '../tenant/tenant.types';
+import { AgentExecutionService } from './agent-execution.service';
 
 @Controller('agents')
 @UseGuards(JwtAuthGuard, TenantGuard)
 export class AgentsController {
-  constructor(private readonly agentsService: AgentsService) {}
+  constructor(
+    private readonly agentsService: AgentsService,
+    private readonly agentExecutionService: AgentExecutionService,
+  ) {}
 
-  @Post()
+@Post()
   async create(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateAgentDto,
