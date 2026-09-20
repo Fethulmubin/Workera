@@ -8,6 +8,7 @@ import { TenantModule } from './tenant/tenant.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { AgentsModule } from './agents/agents.module';
 import { LoggerModule } from 'nestjs-pino';
+import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 
 @Module({
   imports: [
@@ -35,7 +36,8 @@ import { LoggerModule } from 'nestjs-pino';
     AuthModule,
     TenantModule,
     OrganizationsModule,
-    AgentsModule
+    AgentsModule,
+    KnowledgeBaseModule,
   ],
   controllers: [AppController],
   providers: [AppService],
