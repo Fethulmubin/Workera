@@ -1,3 +1,6 @@
+/**
+ * Service for generating text embeddings using OpenRouter with Gemini fallback.
+ */
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
