@@ -1,6 +1,3 @@
-/**
- * Utility for recursively splitting document text into overlapping chunks.
- */
 export interface TextChunk {
   content: string;
   chunkIndex: number;
