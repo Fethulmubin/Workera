@@ -1,6 +1,3 @@
-/**
- * Cloudinary file storage provider for document uploads and asset management.
- */
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
