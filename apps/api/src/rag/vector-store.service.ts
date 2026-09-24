@@ -1,6 +1,3 @@
-/**
- * Vector store operations for storing and querying pgvector document chunks.
- */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 
