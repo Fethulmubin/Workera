@@ -1,6 +1,3 @@
-/**
- * Manages organization knowledge bases, document uploads, and vector search.
- */
 import {
   BadRequestException,
   Injectable,
