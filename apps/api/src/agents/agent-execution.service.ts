@@ -1,6 +1,3 @@
-/**
- * Handles AI agent execution, dynamic RAG retrieval, and conversation turns.
- */
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { VectorStoreService } from '../rag/vector-store.service';
