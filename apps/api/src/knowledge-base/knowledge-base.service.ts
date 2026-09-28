@@ -4,14 +4,17 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../database/prisma.service';
 import { CloudinaryService } from '../storage/cloudinary.service';
 import { EmbeddingService } from '../rag/embedding.service';
 import { VectorStoreService } from '../rag/vector-store.service';
-import { chunkText } from '../rag/text-splitter';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { DocumentStatus } from '@ai-workforce/database';
 import { PDFParse } from 'pdf-parse';
+import * as mammoth from 'mammoth';
+import { DOCUMENT_INGESTION_QUEUE, DocumentIngestionJobData } from './ingestion.queue';
 
 @Injectable()
 export class KnowledgeBaseService {
@@ -20,6 +23,8 @@ export class KnowledgeBaseService {
     private readonly cloudinaryService: CloudinaryService,
     private readonly embeddingService: EmbeddingService,
     private readonly vectorStoreService: VectorStoreService,
+    @InjectQueue(DOCUMENT_INGESTION_QUEUE)
+    private readonly ingestionQueue: Queue<DocumentIngestionJobData>,
   ) {}
 
   async createKnowledgeBase(organizationId: string, dto: CreateKnowledgeBaseDto) {
@@ -71,95 +76,87 @@ export class KnowledgeBaseService {
   }
 
   async uploadAndProcessDocument(
-  organizationId: string,
-  kbId: string,
-  file: Express.Multer.File,
-) {
-  const kb = await this.prisma.knowledgeBase.findFirst({
-    where: { id: kbId, organizationId },
-  });
-  if (!kb) throw new NotFoundException('Knowledge base not found in this organization');
-
-  if (!file) throw new BadRequestException('No file uploaded');
-
-  // 1. Upload original file to Cloudinary
-  let cloudResult;
-  try {
-    cloudResult = await this.cloudinaryService.uploadFile(file);
-  } catch (err: any) {
-    throw new InternalServerErrorException(`Cloudinary upload failed: ${err.message}`);
-  }
-
-  // 2. Create Document record with PROCESSING status
-  const doc = await this.prisma.document.create({
-    data: {
-      knowledgeBaseId: kbId,
-      title: file.originalname,
-      fileUrl: cloudResult.secure_url,
-      cloudinaryPublicId: cloudResult.public_id,
-      fileType: file.mimetype,
-      fileSize: file.size,
-      status: DocumentStatus.PROCESSING,
-    },
-  });
-
-  // 3. Extract text (FIXED SECTION)
-  let rawText = '';
-  try {
-    if (file.mimetype === 'application/pdf') {
-      // Correct usage for pdf-parse v2
-      const parser = new PDFParse({ data: file.buffer });
-      const result = await parser.getText(); 
-      rawText = result.text; // Extract the text property
-      await parser.destroy(); // Clean up resources
-    } else {
-      rawText = file.buffer.toString('utf-8');
-    }
-  } catch (error: any) {
-    await this.prisma.document.update({
-      where: { id: doc.id },
-      data: { status: DocumentStatus.FAILED, errorMessage: `PDF Parse Error: ${error.message}` },
+    organizationId: string,
+    kbId: string,
+    file: Express.Multer.File,
+    agentId?: string,
+  ) {
+    const kb = await this.prisma.knowledgeBase.findFirst({
+      where: { id: kbId, organizationId },
     });
-    throw new BadRequestException(`Failed to parse PDF: ${error.message}`);
-  }
+    if (!kb) throw new NotFoundException('Knowledge base not found in this organization');
 
-  if (!rawText || !rawText.trim()) {
-    await this.prisma.document.update({
-      where: { id: doc.id },
-      data: { status: DocumentStatus.FAILED, errorMessage: 'File contains no readable text' },
-    });
-    throw new BadRequestException('Uploaded document contains no readable text');
-  }
+    if (!file) throw new BadRequestException('No file uploaded');
 
-  // 4. Chunk text
-  const chunks = chunkText(rawText);
-
-  // 5. Generate embeddings via Gemini & insert into pgvector
-  try {
-    const textsToEmbed = chunks.map((c) => c.content);
-    const embeddings = await this.embeddingService.generateEmbeddings(textsToEmbed);
-
-    for (let i = 0; i < chunks.length; i++) {
-      await this.vectorStoreService.storeChunkWithEmbedding(
-        doc.id,
-        chunks[i].content,
-        chunks[i].chunkIndex,
-        embeddings[i],
-      );
+    // Auto-link agent if agentId is provided
+    if (agentId) {
+      await this.linkAgent(organizationId, kbId, agentId);
     }
 
-    return await this.prisma.document.update({
-      where: { id: doc.id },
-      data: { status: DocumentStatus.READY },
+    // 1. Upload original file to Cloudinary
+    let cloudResult;
+    try {
+      cloudResult = await this.cloudinaryService.uploadFile(file);
+    } catch (err: any) {
+      throw new InternalServerErrorException(`Cloudinary upload failed: ${err.message}`);
+    }
+
+    // 2. Extract text (PDF, DOCX, or TXT)
+    let rawText = '';
+    try {
+      if (file.mimetype === 'application/pdf') {
+        const parser = new PDFParse({ data: file.buffer });
+        const result = await parser.getText();
+        rawText = result.text;
+        await parser.destroy();
+      } else if (
+        file.mimetype ===
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.originalname.endsWith('.docx')
+      ) {
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        rawText = result.value;
+      } else if (file.mimetype === 'text/plain') {
+        rawText = file.buffer.toString('utf-8');
+      } else {
+        throw new BadRequestException(`Unsupported file type: ${file.mimetype}`);
+      }
+    } catch (error: any) {
+      throw new BadRequestException(`Failed to parse document: ${error.message}`);
+    }
+
+    if (!rawText || !rawText.trim()) {
+      throw new BadRequestException('Uploaded document contains no readable text');
+    }
+
+    // 3. Create Document record with PENDING status
+    const doc = await this.prisma.document.create({
+      data: {
+        knowledgeBaseId: kbId,
+        title: file.originalname,
+        fileUrl: cloudResult.secure_url,
+        cloudinaryPublicId: cloudResult.public_id,
+        fileType: file.mimetype,
+        fileSize: file.size,
+        status: DocumentStatus.PENDING,
+      },
     });
-  } catch (error: any) {
-    await this.prisma.document.update({
-      where: { id: doc.id },
-      data: { status: DocumentStatus.FAILED, errorMessage: error.message },
+
+    // 4. Dispatch async processing job to BullMQ Redis Queue
+    await this.ingestionQueue.add('ingest', {
+      documentId: doc.id,
+      rawText,
     });
-    throw new InternalServerErrorException(`Embedding generation failed: ${error.message}`);
-  }
-}   
+
+    // 5. Return HTTP 202 Accepted response immediately
+    return {
+      id: doc.id,
+      title: doc.title,
+      status: doc.status,
+      fileUrl: doc.fileUrl,
+      message: 'Document uploaded. Background semantic chunking and embedding started.',
+    };
+  }   
   async searchKnowledge(
     organizationId: string,
     query: string,
