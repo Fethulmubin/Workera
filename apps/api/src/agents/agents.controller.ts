@@ -148,4 +148,56 @@ async previewRoute(
     dto.forceReRoute,
   );
 }
+/**
+ * 2. Supervised Chat (Route + Execute)
+ */
+@Post('supervisor/chat')
+async chatWithSupervisor(
+  @CurrentTenant() tenant: TenantContext,
+  @Body() dto: SupervisorChatDto,
+) {
+  if (!dto.message) {
+    throw new BadRequestException('Message is required');
+  }
+  return this.agentSupervisorService.executeSupervisedChat(tenant.organizationId, dto);
 }
+/**
+ * 3. Supervised Streaming Chat (Route + Stream SSE)
+ */
+@Post('supervisor/chat/stream')
+chatStreamWithSupervisor(
+  @CurrentTenant() tenant: TenantContext,
+  @Body() dto: SupervisorChatDto,
+  @Res() res: Response,
+): void {
+  if (!dto.message) {
+    throw new BadRequestException('Message is required');
+  }
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  const stream$ = this.agentSupervisorService.executeSupervisedChatStream(
+    tenant.organizationId,
+    dto,
+  );
+  const subscription = stream$.subscribe({
+    next: (event) => {
+      res.write(`data: ${event.data}\n\n`);
+    },
+    error: (err) => {
+      res.write(
+        `data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`,
+      );
+      res.end();
+    },
+    complete: () => {
+      res.end();
+    },
+  });
+  res.on('close', () => {
+    subscription.unsubscribe();
+  });
+}
+}
+
