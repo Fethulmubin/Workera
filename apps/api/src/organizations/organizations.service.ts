@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
-import { OrganizationRole } from '@ai-workforce/database';
+import { AgentType, OrganizationRole } from '@ai-workforce/database';
 
 @Injectable()
 export class OrganizationsService {
@@ -16,28 +16,41 @@ export class OrganizationsService {
       throw new ConflictException('An organization with this slug already exists');
     }
 
-    // Atomic transaction: create organization and set the creator as OWNER
-    return this.prisma.$transaction(async (tx) => {
-      const org = await tx.organization.create({
-        data: {
-          name: dto.name,
-          slug: dto.slug,
-        },
-      });
-
-      const member = await tx.organizationMember.create({
-        data: {
-          organizationId: org.id,
-          userId,
-          role: OrganizationRole.OWNER,
-        },
-      });
-
-      return {
-        ...org,
-        membership: member,
-      };
-    });
+return this.prisma.$transaction(async (tx) => {
+  // 1. Create Organization
+  const org = await tx.organization.create({
+    data: {
+      name: dto.name,
+      slug: dto.slug,
+    },
+  });
+  // 2. Set Creator as OWNER
+  const member = await tx.organizationMember.create({
+    data: {
+      organizationId: org.id,
+      userId,
+      role: OrganizationRole.OWNER,
+    },
+  });
+  // 3. Create Default General Agent for the Organization
+  await tx.agent.create({
+    data: {
+      organizationId: org.id,
+      name: `${dto.name} Assistant`,
+      type: AgentType.GENERAL,
+      description: 'Primary workplace assistant for general inquiries, drafting, productivity, and organization-wide support.',
+      systemPrompt: `You are the primary General Workplace Assistant for ${dto.name}.
+YOUR ROLE:
+- Assist employees and team members with daily workplace productivity, drafting messages, answering questions, and general guidance.
+- If a question pertains to a specific policy or financial record not yet in your knowledge base, provide helpful general advice and recommend consulting the relevant department.`,
+      isActive: true,
+    },
+  });
+  return {
+    ...org,
+    membership: member,
+  };
+});
   }
 
   async getUserOrganizations(userId: string) {
