@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
   Query,
@@ -46,13 +48,17 @@ export class KnowledgeBaseController {
   }
 
   @Post(':id/upload')
+  @HttpCode(HttpStatus.ACCEPTED)
   @UseInterceptors(FileInterceptor('file'))
   async uploadDocument(
     @CurrentTenant() tenant: TenantContext,
     @Param('id') kbId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Query('agentId') queryAgentId?: string,
+    @Body('agentId') bodyAgentId?: string,
   ) {
-    return this.kbService.uploadAndProcessDocument(tenant.organizationId, kbId, file);
+    const agentId = queryAgentId || bodyAgentId;
+    return this.kbService.uploadAndProcessDocument(tenant.organizationId, kbId, file, agentId);
   }
 
   @Get('search')
