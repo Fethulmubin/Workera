@@ -20,12 +20,15 @@ import { TenantGuard } from '../tenant/tenant.guard';
 import { CurrentTenant } from '../tenant/current-tenant.decorator';
 import type { TenantContext } from '../tenant/tenant.types';
 import { AgentExecutionService } from './agent-execution.service';
+import { SupervisorChatDto } from './dto/supervisor-chat.dto';
+import { AgentSupervisorService } from './agent-supervisor.service';
 
 @Controller('agents')
 @UseGuards(JwtAuthGuard, TenantGuard)
 export class AgentsController {
   constructor(private readonly agentsService: AgentsService,
-    private readonly agentExecutionService: AgentExecutionService) {}
+    private readonly agentExecutionService: AgentExecutionService,
+    private readonly agentSupervisorService: AgentSupervisorService) {}
   @Post()
   async create(
     @CurrentTenant() tenant: TenantContext,
@@ -126,5 +129,23 @@ chatStreamWithAgent(
   res.on('close', () => {
     subscription.unsubscribe();
   });
+}
+/**
+ * 1. Dry-run inspect which agent will take over the prompt
+ */
+@Post('supervisor/route')
+async previewRoute(
+  @CurrentTenant() tenant: TenantContext,
+  @Body() dto: SupervisorChatDto,
+) {
+  if (!dto.message) {
+    throw new BadRequestException('Message is required');
+  }
+  return this.agentSupervisorService.routeRequest(
+    tenant.organizationId,
+    dto.message,
+    dto.conversationId,
+    dto.forceReRoute,
+  );
 }
 }
