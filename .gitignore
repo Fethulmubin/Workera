@@ -19,6 +19,10 @@ dist
 coverage
 .coverage
 
+/sample_docs
+/sample_documents
+/scripts
+
 
 # next.js
 /.next/
