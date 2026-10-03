@@ -26,6 +26,7 @@ export class AgentExecutionService {
     agentId: string,
     userMessage: string,
     conversationId?: string,
+    userId?: string,
   ) {
     // 1. Fetch Agent configuration
     const agent = await this.prisma.agent.findFirst({
@@ -42,6 +43,7 @@ export class AgentExecutionService {
         data: {
           organizationId,
           agentId,
+          userId: userId || 'anonymous',
           title: userMessage.slice(0, 40),
         },
       });
@@ -143,6 +145,7 @@ INSTRUCTIONS:
     agentId: string,
     userMessage: string,
     conversationId?: string,
+    userId?: string,
   ): Observable<{ data: string }> {
     const stream$ = new Subject<{ data: string }>();
 
@@ -167,6 +170,7 @@ INSTRUCTIONS:
             data: {
               organizationId,
               agentId,
+              userId: userId || 'anonymous',
               title: userMessage.slice(0, 40),
             },
           });
