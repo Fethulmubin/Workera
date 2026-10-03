@@ -74,11 +74,16 @@ Assist employees and team members with workplace productivity, questions, drafti
     userMessage: string,
     conversationId?: string,
     forceReRoute = false,
+    userId?: string,
   ): Promise<RoutingDecision> {
     // 1. If conversation exists and re-routing is not forced, stick to the existing agent
     if (conversationId && !forceReRoute) {
       const existingConv = await this.prisma.conversation.findFirst({
-        where: { id: conversationId, organizationId },
+        where: {
+          id: conversationId,
+          organizationId,
+          ...(userId ? { userId } : {}),
+        },
         include: { agent: true },
       });
 
@@ -130,12 +135,14 @@ Assist employees and team members with workplace productivity, questions, drafti
   async executeSupervisedChat(
     organizationId: string,
     dto: SupervisorChatDto,
+    userId?: string,
   ): Promise<SupervisedChatResponse> {
     const routing = await this.routeRequest(
       organizationId,
       dto.message,
       dto.conversationId,
       dto.forceReRoute,
+      userId,
     );
 
     this.logger.log(
@@ -147,6 +154,7 @@ Assist employees and team members with workplace productivity, questions, drafti
       routing.selectedAgentId,
       dto.message,
       dto.conversationId,
+      userId,
     );
 
     return {
@@ -163,6 +171,7 @@ Assist employees and team members with workplace productivity, questions, drafti
   executeSupervisedChatStream(
     organizationId: string,
     dto: SupervisorChatDto,
+    userId?: string,
   ): Observable<{ data: string }> {
     const stream$ = new Subject<{ data: string }>();
 
@@ -174,6 +183,7 @@ Assist employees and team members with workplace productivity, questions, drafti
           dto.message,
           dto.conversationId,
           dto.forceReRoute,
+          userId,
         );
 
         // 2. Emit routing decision block immediately so the UI can show which agent picked it up
@@ -190,6 +200,7 @@ Assist employees and team members with workplace productivity, questions, drafti
           routing.selectedAgentId,
           dto.message,
           dto.conversationId,
+          userId,
         );
 
         innerStream$.subscribe({
