@@ -5,10 +5,7 @@ import { PrismaService } from '../database/prisma.service';
 import { EmbeddingService } from '../rag/embedding.service';
 import { VectorStoreService } from '../rag/vector-store.service';
 import { SemanticChunker } from '../rag/semantic-chunker';
-import {
-  DOCUMENT_INGESTION_QUEUE,
-  DocumentIngestionJobData,
-} from './ingestion.queue';
+import { DOCUMENT_INGESTION_QUEUE, DocumentIngestionJobData } from './ingestion.queue';
 import { DocumentStatus } from '@prisma/client';
 
 @Processor(DOCUMENT_INGESTION_QUEUE, {
@@ -32,17 +29,6 @@ export class IngestionProcessor extends WorkerHost {
       `[Worker] Starting background processing for Document: ${documentId} (Job: ${job.id})`,
     );
 
-    // 0. Verify document still exists before processing (handles deletion after queuing)
-    const existingDoc = await this.prisma.document.findUnique({
-      where: { id: documentId },
-    });
-    if (!existingDoc) {
-      this.logger.warn(
-        `[Worker] Document ${documentId} no longer exists. Skipping processing.`,
-      );
-      return;
-    }
-
     try {
       // 1. Mark status as PROCESSING
       await this.prisma.document.update({
@@ -62,22 +48,9 @@ export class IngestionProcessor extends WorkerHost {
 
       // 3. Batch Vector Embedding generation
       const textsToEmbed = chunks.map((c) => c.content);
-      const embeddings =
-        await this.embeddingService.generateEmbeddings(textsToEmbed);
+      const embeddings = await this.embeddingService.generateEmbeddings(textsToEmbed);
 
-      // Verify embedding count matches chunks count
-      if (chunks.length !== embeddings.length) {
-        throw new Error(
-          `Chunk count (${chunks.length}) does not match embedding count (${embeddings.length})`,
-        );
-      }
-
-      // 4. Clear existing chunks to ensure idempotency on retries
-      await this.prisma.documentChunk.deleteMany({
-        where: { documentId },
-      });
-
-      // 5. Insert into pgvector
+      // 4. Insert into pgvector
       for (let i = 0; i < chunks.length; i++) {
         await this.vectorStoreService.storeChunkWithEmbedding(
           documentId,
@@ -87,39 +60,26 @@ export class IngestionProcessor extends WorkerHost {
         );
       }
 
-      // 6. Mark status as READY
+      // 5. Mark status as READY
       await this.prisma.document.update({
         where: { id: documentId },
         data: { status: DocumentStatus.READY },
       });
 
-      this.logger.log(
-        `[Worker] Document ${documentId} successfully ingested and ready for RAG!`,
-      );
+      this.logger.log(`[Worker] Document ${documentId} successfully ingested and ready for RAG!`);
     } catch (err: any) {
       this.logger.error(
         `[Worker] Document ${documentId} processing failed: ${err.message}`,
         err.stack,
       );
 
-      try {
-        const docCheck = await this.prisma.document.findUnique({
-          where: { id: documentId },
-        });
-        if (docCheck) {
-          await this.prisma.document.update({
-            where: { id: documentId },
-            data: {
-              status: DocumentStatus.FAILED,
-              errorMessage: err.message || 'Unknown processing error',
-            },
-          });
-        }
-      } catch (statusErr: any) {
-        this.logger.error(
-          `[Worker] Failed to update document status to FAILED: ${statusErr.message}`,
-        );
-      }
+      await this.prisma.document.update({
+        where: { id: documentId },
+        data: {
+          status: DocumentStatus.FAILED,
+          errorMessage: err.message || 'Unknown processing error',
+        },
+      });
 
       // Re-throw so BullMQ tracks the failure and triggers retry backoff
       throw err;

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 import { Readable } from 'stream';
@@ -25,10 +21,7 @@ export class CloudinaryService {
     });
   }
 
-  async uploadFile(
-    file: Express.Multer.File,
-    folder = 'ai-workforce-docs',
-  ): Promise<UploadApiResponse> {
+  async uploadFile(file: Express.Multer.File, folder = 'ai-workforce-docs'): Promise<UploadApiResponse> {
     return new Promise((resolve, reject) => {
       const upload = cloudinary.uploader.upload_stream(
         {
@@ -39,18 +32,9 @@ export class CloudinaryService {
         (error, result) => {
           if (error) {
             this.logger.error(`Cloudinary Error: ${JSON.stringify(error)}`);
-            return reject(
-              new InternalServerErrorException(
-                error.message || 'Cloudinary upload failed',
-              ),
-            );
+            return reject(new InternalServerErrorException(error.message || 'Cloudinary upload failed'));
           }
-          if (!result)
-            return reject(
-              new InternalServerErrorException(
-                'Empty response from Cloudinary',
-              ),
-            );
+          if (!result) return reject(new InternalServerErrorException('Empty response from Cloudinary'));
           resolve(result);
         },
       );
@@ -59,24 +43,6 @@ export class CloudinaryService {
       readableStream.push(file.buffer);
       readableStream.push(null);
       readableStream.pipe(upload);
-    });
-  }
-
-  async deleteFile(publicId: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      cloudinary.uploader.destroy(
-        publicId,
-        { resource_type: 'raw' },
-        (error, result) => {
-          if (error) {
-            this.logger.error(
-              `Cloudinary deletion error: ${JSON.stringify(error)}`,
-            );
-            return reject(error);
-          }
-          resolve(result);
-        },
-      );
     });
   }
 }
