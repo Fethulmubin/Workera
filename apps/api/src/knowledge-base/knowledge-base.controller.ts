@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   UploadedFile,
@@ -14,6 +16,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
+import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
 import { LinkAgentDto } from './dto/link-agent.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenant/tenant.guard';
@@ -42,6 +45,46 @@ export class KnowledgeBaseController {
     return this.kbService.listKnowledgeBases(tenant.organizationId);
   }
 
+  @Get('search')
+  async search(
+    @CurrentTenant() tenant: TenantContext,
+    @Query('q') query: string,
+    @Query('agentId') agentId?: string,
+  ) {
+    return this.kbService.searchKnowledge(
+      tenant.organizationId,
+      query,
+      agentId,
+    );
+  }
+
+  @Get(':id')
+  async getOne(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') kbId: string,
+  ) {
+    return this.kbService.getKnowledgeBaseById(tenant.organizationId, kbId);
+  }
+
+  @Patch(':id')
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
+  async update(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') kbId: string,
+    @Body() dto: UpdateKnowledgeBaseDto,
+  ) {
+    return this.kbService.updateKnowledgeBase(tenant.organizationId, kbId, dto);
+  }
+
+  @Delete(':id')
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
+  async remove(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') kbId: string,
+  ) {
+    return this.kbService.deleteKnowledgeBase(tenant.organizationId, kbId);
+  }
+
   @Post(':id/link-agent')
   @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   async linkAgent(
@@ -50,6 +93,16 @@ export class KnowledgeBaseController {
     @Body() dto: LinkAgentDto,
   ) {
     return this.kbService.linkAgent(tenant.organizationId, kbId, dto.agentId);
+  }
+
+    @Delete(":id/link-agent/:agentId")
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
+  async unlinkAgent(
+    @CurrentTenant() tenant: TenantContext,
+    @Param("id") kbId: string,
+    @Param("agentId") agentId: string,
+  ) {
+    return this.kbService.unlinkAgent(tenant.organizationId, kbId, agentId);
   }
 
   @Post(':id/upload')
@@ -64,15 +117,59 @@ export class KnowledgeBaseController {
     @Body('agentId') bodyAgentId?: string,
   ) {
     const agentId = queryAgentId || bodyAgentId;
-    return this.kbService.uploadAndProcessDocument(tenant.organizationId, kbId, file, agentId);
+    return this.kbService.uploadAndProcessDocument(
+      tenant.organizationId,
+      kbId,
+      file,
+      agentId,
+    );
   }
 
-  @Get('search')
-  async search(
+  @Get(':id/documents')
+  async listDocuments(
     @CurrentTenant() tenant: TenantContext,
-    @Query('q') query: string,
-    @Query('agentId') agentId?: string,
+    @Param('id') kbId: string,
   ) {
-    return this.kbService.searchKnowledge(tenant.organizationId, query, agentId);
+    return this.kbService.listDocuments(tenant.organizationId, kbId);
+  }
+
+  @Get(':id/documents/:documentId/status')
+  async getDocumentStatus(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') kbId: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.kbService.getDocumentStatus(
+      tenant.organizationId,
+      kbId,
+      documentId,
+    );
+  }
+
+  @Get(':id/documents/:documentId')
+  async getDocument(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') kbId: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.kbService.getDocumentById(
+      tenant.organizationId,
+      kbId,
+      documentId,
+    );
+  }
+
+  @Delete(':id/documents/:documentId')
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
+  async deleteDocument(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') kbId: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.kbService.deleteDocument(
+      tenant.organizationId,
+      kbId,
+      documentId,
+    );
   }
 }

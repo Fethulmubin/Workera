@@ -1,16 +1,24 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { AgentType } from '@ai-workforce/database';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from "class-validator";
+import { AgentType } from "@ai-workforce/database";
 
 export class CreateAgentDto {
   @IsString()
   @IsNotEmpty()
-  @MinLength(2)
-  @MaxLength(50)
+  @MinLength(1)
+  @MaxLength(100)
   name!: string;
 
   @IsString()
   @IsOptional()
-  @MaxLength(255)
+  @MaxLength(500)
   description?: string;
 
   @IsEnum(AgentType)
@@ -19,6 +27,7 @@ export class CreateAgentDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(10000)
   systemPrompt?: string;
 
   @IsBoolean()

@@ -85,7 +85,7 @@ Assist employees and team members with workplace productivity, questions, drafti
         throw new NotFoundException('Conversation not found');
       }
 
-      if (existingConv && existingConv.agent && !forceReRoute) {
+      if (existingConv && existingConv.agent && existingConv.agent.isActive !== false && !forceReRoute) {
         return {
           selectedAgentId: existingConv.agentId,
           agentName: existingConv.agent.name,

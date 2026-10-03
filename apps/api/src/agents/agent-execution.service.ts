@@ -1,10 +1,15 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
-import { PrismaService } from '../database/prisma.service';
-import { VectorStoreService } from '../rag/vector-store.service';
-import { EmbeddingService } from '../rag/embedding.service';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { ConfigService } from '@nestjs/config';
-import { Observable, Subject } from 'rxjs';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  Logger,
+} from "@nestjs/common";
+import { PrismaService } from "../database/prisma.service";
+import { VectorStoreService } from "../rag/vector-store.service";
+import { EmbeddingService } from "../rag/embedding.service";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { ConfigService } from "@nestjs/config";
+import { Observable, Subject } from "rxjs";
 
 @Injectable()
 export class AgentExecutionService {
@@ -17,7 +22,7 @@ export class AgentExecutionService {
     private readonly embeddingService: EmbeddingService,
     private readonly configService: ConfigService,
   ) {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
+    const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
     this.genAI = new GoogleGenerativeAI(apiKey);
   }
 
@@ -37,10 +42,35 @@ export class AgentExecutionService {
     });
 
     if (!conversation) {
-      throw new NotFoundException('Conversation not found');
+      throw new NotFoundException("Conversation not found");
     }
 
     return conversation;
+  }
+
+  buildSystemPrompt(
+    agentPrompt: string | null | undefined,
+    retrievedChunks: Array<{ documentTitle: string; content: string }>,
+  ): string {
+    const contextText = retrievedChunks
+      .map(
+        (chunk, idx) =>
+          `[Source ${idx + 1} - ${chunk.documentTitle}]\n${chunk.content}`,
+      )
+      .join("\n\n");
+
+    return `
+${agentPrompt?.trim() || "You are a helpful AI assistant."}
+
+---
+CONTEXT FROM KNOWLEDGE BASE:
+${contextText || "No relevant knowledge base documents found."}
+---
+
+INSTRUCTIONS:
+- Answer the user's query using the provided context when relevant.
+- Cite your sources when using facts from the knowledge base using [Source X].
+`.trim();
   }
 
   async executeChat(
@@ -55,8 +85,15 @@ export class AgentExecutionService {
       where: { id: agentId, organizationId },
       include: { knowledgeBases: true },
     });
-    if (!agent)
-      throw new NotFoundException('Agent not found in this organization');
+    if (!agent) {
+      throw new NotFoundException("Agent not found in this organization");
+    }
+
+    if (agent.isActive === false) {
+      throw new BadRequestException(
+        "Agent is inactive and cannot execute conversations",
+      );
+    }
 
     // 2. Ensure Conversation exists and validate ownership
     let activeConversationId = conversationId;
@@ -83,7 +120,7 @@ export class AgentExecutionService {
     await this.prisma.message.create({
       data: {
         conversationId: activeConversationId,
-        role: 'user',
+        role: "user",
         content: userMessage,
       },
     });
@@ -101,40 +138,25 @@ export class AgentExecutionService {
     );
 
     // 4. Construct System Prompt with Context & Citations
-    const contextText = retrievedChunks
-      .map(
-        (chunk, idx) =>
-          `[Source ${idx + 1} - ${chunk.documentTitle}]\n${chunk.content}`,
-      )
-      .join('\n\n');
-
-    const systemPrompt = `
-${agent.systemPrompt || 'You are a helpful AI assistant.'}
-
----
-CONTEXT FROM KNOWLEDGE BASE:
-${contextText || 'No relevant knowledge base documents found.'}
----
-
-INSTRUCTIONS:
-- Answer the user's query using the provided context when relevant.
-- Cite your sources when using facts from the knowledge base using [Source X].
-`;
+    const systemPrompt = this.buildSystemPrompt(
+      agent.systemPrompt,
+      retrievedChunks,
+    );
 
     // 5. Fetch previous message history
     const history = await this.prisma.message.findMany({
       where: { conversationId: activeConversationId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
       take: 10,
     });
 
     const contents = history.map((msg) => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
+      role: msg.role === "assistant" ? "model" : "user",
       parts: [{ text: msg.content }],
     }));
 
     const modelName =
-      this.configService.get<string>('GEMINI_MODEL') || 'gemini-3.6-flash';
+      this.configService.get<string>("GEMINI_MODEL") || "gemini-3.6-flash";
     const model = this.genAI.getGenerativeModel({ model: modelName });
     const chat = model.startChat({
       history: contents.slice(0, -1), // Exclude latest message added directly
@@ -156,7 +178,7 @@ INSTRUCTIONS:
     const savedAssistantMsg = await this.prisma.message.create({
       data: {
         conversationId: activeConversationId,
-        role: 'assistant',
+        role: "assistant",
         content: responseText,
         citations,
       },
@@ -186,7 +208,13 @@ INSTRUCTIONS:
           include: { knowledgeBases: true },
         });
         if (!agent) {
-          throw new NotFoundException('Agent not found in this organization');
+          throw new NotFoundException("Agent not found in this organization");
+        }
+
+        if (agent.isActive === false) {
+          throw new BadRequestException(
+            "Agent is inactive and cannot execute conversations",
+          );
         }
 
         // 2. Ensure Conversation exists and validate ownership
@@ -213,7 +241,7 @@ INSTRUCTIONS:
         // Emit conversation ID metadata right away
         stream$.next({
           data: JSON.stringify({
-            type: 'metadata',
+            type: "metadata",
             conversationId: activeConversationId,
           }),
         });
@@ -222,7 +250,7 @@ INSTRUCTIONS:
         await this.prisma.message.create({
           data: {
             conversationId: activeConversationId,
-            role: 'user',
+            role: "user",
             content: userMessage,
           },
         });
@@ -248,45 +276,30 @@ INSTRUCTIONS:
 
         // Emit citations metadata
         stream$.next({
-          data: JSON.stringify({ type: 'citations', citations }),
+          data: JSON.stringify({ type: "citations", citations }),
         });
 
         // 4. Construct System Prompt
-        const contextText = retrievedChunks
-          .map(
-            (chunk, idx) =>
-              `[Source ${idx + 1} - ${chunk.documentTitle}]\n${chunk.content}`,
-          )
-          .join('\n\n');
-
-        const systemPrompt = `
-${agent.systemPrompt || 'You are a helpful AI assistant.'}
-
----
-CONTEXT FROM KNOWLEDGE BASE:
-${contextText || 'No relevant knowledge base documents found.'}
----
-
-INSTRUCTIONS:
-- Answer the user's query using the provided context when relevant.
-- Cite your sources when using facts from the knowledge base using [Source X].
-`;
+        const systemPrompt = this.buildSystemPrompt(
+          agent.systemPrompt,
+          retrievedChunks,
+        );
 
         // 5. Fetch message history for context continuity
         const history = await this.prisma.message.findMany({
           where: { conversationId: activeConversationId },
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           take: 10,
         });
 
         const contents = history.map((msg) => ({
-          role: msg.role === 'assistant' ? 'model' : 'user',
+          role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }],
         }));
 
         // 6. Gemini Stream Execution
         const modelName =
-          this.configService.get<string>('GEMINI_MODEL') || 'gemini-3.6-flash';
+          this.configService.get<string>("GEMINI_MODEL") || "gemini-3.6-flash";
         const model = this.genAI.getGenerativeModel({ model: modelName });
         const chat = model.startChat({
           history: contents.slice(0, -1),
@@ -296,12 +309,12 @@ INSTRUCTIONS:
           `${systemPrompt}\n\nUser: ${userMessage}`,
         );
 
-        let fullContent = '';
+        let fullContent = "";
         for await (const chunk of resultStream.stream) {
           const textChunk = chunk.text();
           fullContent += textChunk;
           stream$.next({
-            data: JSON.stringify({ type: 'token', content: textChunk }),
+            data: JSON.stringify({ type: "token", content: textChunk }),
           });
         }
 
@@ -309,7 +322,7 @@ INSTRUCTIONS:
         const savedAssistantMsg = await this.prisma.message.create({
           data: {
             conversationId: activeConversationId,
-            role: 'assistant',
+            role: "assistant",
             content: fullContent,
             citations,
           },
@@ -318,7 +331,7 @@ INSTRUCTIONS:
         // Emit completion event
         stream$.next({
           data: JSON.stringify({
-            type: 'done',
+            type: "done",
             messageId: savedAssistantMsg.id,
           }),
         });
@@ -327,7 +340,7 @@ INSTRUCTIONS:
       } catch (err: any) {
         this.logger.error(`Stream execution error: ${err.message}`, err.stack);
         stream$.next({
-          data: JSON.stringify({ type: 'error', error: err.message }),
+          data: JSON.stringify({ type: "error", error: err.message }),
         });
         stream$.complete();
       }
