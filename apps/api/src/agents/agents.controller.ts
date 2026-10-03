@@ -17,6 +17,9 @@ import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenant/tenant.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { RequireRoles } from '../auth/roles.decorator';
+import { OrganizationRole } from '@ai-workforce/database';
 import { CurrentTenant } from '../tenant/current-tenant.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { TenantContext } from '../tenant/tenant.types';
@@ -25,12 +28,15 @@ import { SupervisorChatDto } from './dto/supervisor-chat.dto';
 import { AgentSupervisorService } from './agent-supervisor.service';
 
 @Controller('agents')
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class AgentsController {
-  constructor(private readonly agentsService: AgentsService,
+  constructor(
+    private readonly agentsService: AgentsService,
     private readonly agentExecutionService: AgentExecutionService,
-    private readonly agentSupervisorService: AgentSupervisorService) {}
+    private readonly agentSupervisorService: AgentSupervisorService,
+  ) {}
   @Post()
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   async create(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateAgentDto,
@@ -52,6 +58,7 @@ export class AgentsController {
   }
 
   @Patch(':agentId')
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   async update(
     @CurrentTenant() tenant: TenantContext,
     @Param('agentId') agentId: string,
@@ -61,6 +68,7 @@ export class AgentsController {
   }
 
   @Delete(':agentId')
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   async remove(
     @CurrentTenant() tenant: TenantContext,
     @Param('agentId') agentId: string,

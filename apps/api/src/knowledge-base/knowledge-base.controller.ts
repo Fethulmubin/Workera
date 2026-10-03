@@ -17,15 +17,19 @@ import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { LinkAgentDto } from './dto/link-agent.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenant/tenant.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { RequireRoles } from '../auth/roles.decorator';
+import { OrganizationRole } from '@ai-workforce/database';
 import { CurrentTenant } from '../tenant/current-tenant.decorator';
 import type { TenantContext } from '../tenant/tenant.types';
 
 @Controller('knowledge-bases')
-@UseGuards(JwtAuthGuard, TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class KnowledgeBaseController {
   constructor(private readonly kbService: KnowledgeBaseService) {}
 
   @Post()
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   async create(
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: CreateKnowledgeBaseDto,
@@ -39,6 +43,7 @@ export class KnowledgeBaseController {
   }
 
   @Post(':id/link-agent')
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   async linkAgent(
     @CurrentTenant() tenant: TenantContext,
     @Param('id') kbId: string,
@@ -48,6 +53,7 @@ export class KnowledgeBaseController {
   }
 
   @Post(':id/upload')
+  @RequireRoles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   @HttpCode(HttpStatus.ACCEPTED)
   @UseInterceptors(FileInterceptor('file'))
   async uploadDocument(

@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Observable, Subject } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
@@ -14,7 +8,7 @@ import {
   SupervisedChatResponse,
   SupervisorChatDto,
 } from './dto/supervisor-chat.dto';
-import { AgentType } from '@ai-workforce/database';
+import { AgentType, type Conversation } from '@ai-workforce/database';
 
 @Injectable()
 export class AgentSupervisorService {
@@ -77,7 +71,7 @@ Assist employees and team members with workplace productivity, questions, drafti
     userId?: string,
   ): Promise<RoutingDecision> {
     // 1. If conversation exists and re-routing is not forced, stick to the existing agent
-    if (conversationId && !forceReRoute) {
+    if (conversationId) {
       const existingConv = await this.prisma.conversation.findFirst({
         where: {
           id: conversationId,
@@ -87,7 +81,11 @@ Assist employees and team members with workplace productivity, questions, drafti
         include: { agent: true },
       });
 
-      if (existingConv && existingConv.agent) {
+      if (!existingConv && userId) {
+        throw new NotFoundException('Conversation not found');
+      }
+
+      if (existingConv && existingConv.agent && !forceReRoute) {
         return {
           selectedAgentId: existingConv.agentId,
           agentName: existingConv.agent.name,
@@ -135,12 +133,29 @@ Assist employees and team members with workplace productivity, questions, drafti
   async executeSupervisedChat(
     organizationId: string,
     dto: SupervisorChatDto,
-    userId?: string,
+    userId: string,
   ): Promise<SupervisedChatResponse> {
+    let effectiveConversationId = dto.conversationId;
+    let existingConv: Conversation | null = null;
+
+    if (effectiveConversationId) {
+      existingConv = await this.prisma.conversation.findFirst({
+        where: {
+          id: effectiveConversationId,
+          organizationId,
+          userId,
+        },
+      });
+
+      if (!existingConv) {
+        throw new NotFoundException('Conversation not found');
+      }
+    }
+
     const routing = await this.routeRequest(
       organizationId,
       dto.message,
-      dto.conversationId,
+      effectiveConversationId,
       dto.forceReRoute,
       userId,
     );
@@ -149,11 +164,18 @@ Assist employees and team members with workplace productivity, questions, drafti
       `Supervisor routed query to "${routing.agentName}" (${routing.selectedAgentId}). Reason: ${routing.reason}`,
     );
 
+    if (existingConv && existingConv.agentId !== routing.selectedAgentId) {
+      this.logger.log(
+        `Conversation ${effectiveConversationId} belongs to agent ${existingConv.agentId}, but supervisor selected ${routing.selectedAgentId}. Starting new conversation.`,
+      );
+      effectiveConversationId = undefined;
+    }
+
     const executionResult = await this.agentExecutionService.executeChat(
       organizationId,
       routing.selectedAgentId,
       dto.message,
-      dto.conversationId,
+      effectiveConversationId,
       userId,
     );
 
@@ -171,20 +193,44 @@ Assist employees and team members with workplace productivity, questions, drafti
   executeSupervisedChatStream(
     organizationId: string,
     dto: SupervisorChatDto,
-    userId?: string,
+    userId: string,
   ): Observable<{ data: string }> {
     const stream$ = new Subject<{ data: string }>();
 
     (async () => {
       try {
+        let effectiveConversationId = dto.conversationId;
+        let existingConv: Conversation | null = null;
+
+        if (effectiveConversationId) {
+          existingConv = await this.prisma.conversation.findFirst({
+            where: {
+              id: effectiveConversationId,
+              organizationId,
+              userId,
+            },
+          });
+
+          if (!existingConv) {
+            throw new NotFoundException('Conversation not found');
+          }
+        }
+
         // 1. Determine routing
         const routing = await this.routeRequest(
           organizationId,
           dto.message,
-          dto.conversationId,
+          effectiveConversationId,
           dto.forceReRoute,
           userId,
         );
+
+        if (existingConv && existingConv.agentId !== routing.selectedAgentId) {
+          this.logger.log(
+            `Conversation ${effectiveConversationId} belongs to agent ${existingConv.agentId}, but supervisor selected ${routing.selectedAgentId}. Starting new conversation.`,
+          );
+          effectiveConversationId = undefined;
+        }
 
         // 2. Emit routing decision block immediately so the UI can show which agent picked it up
         stream$.next({
@@ -199,7 +245,7 @@ Assist employees and team members with workplace productivity, questions, drafti
           organizationId,
           routing.selectedAgentId,
           dto.message,
-          dto.conversationId,
+          effectiveConversationId,
           userId,
         );
 

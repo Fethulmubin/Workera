@@ -7,12 +7,14 @@ import { DOCUMENT_INGESTION_QUEUE } from './ingestion.queue';
 import { TenantModule } from '../tenant/tenant.module';
 import { StorageModule } from '../storage/storage.module';
 import { RagModule } from '../rag/rag.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
     TenantModule,
     StorageModule,
     RagModule,
+    AuthModule,
     BullModule.registerQueue({
       name: DOCUMENT_INGESTION_QUEUE,
       defaultJobOptions: {

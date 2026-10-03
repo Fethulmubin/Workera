@@ -21,12 +21,34 @@ export class AgentExecutionService {
     this.genAI = new GoogleGenerativeAI(apiKey);
   }
 
+  private async findOwnedConversation(
+    conversationId: string,
+    organizationId: string,
+    agentId: string,
+    userId: string,
+  ) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        organizationId,
+        agentId,
+        userId,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    return conversation;
+  }
+
   async executeChat(
     organizationId: string,
     agentId: string,
     userMessage: string,
-    conversationId?: string,
-    userId?: string,
+    conversationId: string | undefined,
+    userId: string,
   ) {
     // 1. Fetch Agent configuration
     const agent = await this.prisma.agent.findFirst({
@@ -36,18 +58,25 @@ export class AgentExecutionService {
     if (!agent)
       throw new NotFoundException('Agent not found in this organization');
 
-    // 2. Ensure Conversation exists
+    // 2. Ensure Conversation exists and validate ownership
     let activeConversationId = conversationId;
     if (!activeConversationId) {
       const conv = await this.prisma.conversation.create({
         data: {
           organizationId,
           agentId,
-          userId: userId || 'anonymous',
+          userId,
           title: userMessage.slice(0, 40),
         },
       });
       activeConversationId = conv.id;
+    } else {
+      await this.findOwnedConversation(
+        activeConversationId,
+        organizationId,
+        agentId,
+        userId,
+      );
     }
 
     // Save User Message
@@ -144,8 +173,8 @@ INSTRUCTIONS:
     organizationId: string,
     agentId: string,
     userMessage: string,
-    conversationId?: string,
-    userId?: string,
+    conversationId: string | undefined,
+    userId: string,
   ): Observable<{ data: string }> {
     const stream$ = new Subject<{ data: string }>();
 
@@ -157,24 +186,28 @@ INSTRUCTIONS:
           include: { knowledgeBases: true },
         });
         if (!agent) {
-          stream$.error(
-            new NotFoundException('Agent not found in this organization'),
-          );
-          return;
+          throw new NotFoundException('Agent not found in this organization');
         }
 
-        // 2. Ensure Conversation exists
+        // 2. Ensure Conversation exists and validate ownership
         let activeConversationId = conversationId;
         if (!activeConversationId) {
           const conv = await this.prisma.conversation.create({
             data: {
               organizationId,
               agentId,
-              userId: userId || 'anonymous',
+              userId,
               title: userMessage.slice(0, 40),
             },
           });
           activeConversationId = conv.id;
+        } else {
+          await this.findOwnedConversation(
+            activeConversationId,
+            organizationId,
+            agentId,
+            userId,
+          );
         }
 
         // Emit conversation ID metadata right away
