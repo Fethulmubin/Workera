@@ -40,6 +40,15 @@ export class VectorStoreService {
     matchThreshold = 0.4,
     agentId?: string,
   ): Promise<RetrievedChunk[]> {
+    if (agentId) {
+      const agent = await this.prisma.agent.findFirst({
+        where: { id: agentId, organizationId },
+      });
+      if (!agent) {
+        return [];
+      }
+    }
+
     const vectorString = `[${queryEmbedding.join(',')}]`;
 
     const results = await this.prisma.$queryRawUnsafe<any[]>(

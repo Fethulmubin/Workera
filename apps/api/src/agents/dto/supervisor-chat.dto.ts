@@ -3,7 +3,7 @@ import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 export class SupervisorChatDto {
   @IsString()
   @IsNotEmpty()
-  message: string;
+  message!: string;
 
   @IsString()
   @IsOptional()
