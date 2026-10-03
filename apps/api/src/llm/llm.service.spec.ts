@@ -24,8 +24,10 @@ describe('LLMService', () => {
     mockConfigService = {
       get: jest.fn((key: string) => {
         if (key === 'OPENROUTER_API_KEY') return 'test-openrouter-key';
-        if (key === 'OPENROUTER_BASE_URL') return 'https://openrouter.ai/api/v1';
-        if (key === 'WORKERA_MODEL') return 'meta-llama/llama-3.3-70b-instruct:free';
+        if (key === 'OPENROUTER_BASE_URL')
+          return 'https://openrouter.ai/api/v1';
+        if (key === 'WORKERA_MODEL')
+          return 'meta-llama/llama-3.3-70b-instruct:free';
         return null;
       }),
     };
@@ -35,7 +37,9 @@ describe('LLMService', () => {
 
   it('initializes correctly with OpenRouter configuration', () => {
     expect(service.isConfigured()).toBe(true);
-    expect(service.getDefaultModel()).toBe('meta-llama/llama-3.3-70b-instruct:free');
+    expect(service.getDefaultModel()).toBe(
+      'meta-llama/llama-3.3-70b-instruct:free',
+    );
     expect(service.getBaseURL()).toBe('https://openrouter.ai/api/v1');
 
     expect(OpenAI).toHaveBeenCalledWith({
@@ -52,12 +56,15 @@ describe('LLMService', () => {
     const customConfig = {
       get: jest.fn((key: string) => {
         if (key === 'OPENROUTER_API_KEY') return 'custom-key';
-        if (key === 'OPENROUTER_BASE_URL') return 'https://custom.openrouter.ai/v1';
+        if (key === 'OPENROUTER_BASE_URL')
+          return 'https://custom.openrouter.ai/v1';
         if (key === 'WORKERA_MODEL') return 'deepseek/deepseek-chat:free';
         return null;
       }),
     };
-    const customService = new LLMService(customConfig as any);
+    const customService = new LLMService(
+      customConfig as unknown as ConfigService,
+    );
     expect(customService.getDefaultModel()).toBe('deepseek/deepseek-chat:free');
     expect(customService.getBaseURL()).toBe('https://custom.openrouter.ai/v1');
   });
@@ -117,6 +124,7 @@ describe('LLMService', () => {
 
   it('streams completion tokens correctly', async () => {
     async function* fakeStream() {
+      await Promise.resolve();
       yield { choices: [{ delta: { content: 'Hello' } }] };
       yield { choices: [{ delta: { content: ' ' } }] };
       yield { choices: [{ delta: { content: 'world!' } }] };
@@ -144,7 +152,7 @@ describe('LLMService', () => {
   it('throws an error if OPENROUTER_API_KEY is not configured', async () => {
     const unconfiguredService = new LLMService({
       get: jest.fn().mockReturnValue(null),
-    } as any);
+    } as unknown as ConfigService);
 
     await expect(
       unconfiguredService.generateCompletion([{ role: 'user', content: 'Hi' }]),

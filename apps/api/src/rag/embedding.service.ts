@@ -6,6 +6,16 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 
+interface CloudflareAiResponse {
+  result?: {
+    shape?: number[];
+    data?: number[][] | number[];
+  };
+  success?: boolean;
+  errors?: Array<{ message?: string }>;
+  messages?: string[];
+}
+
 @Injectable()
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
@@ -80,10 +90,10 @@ export class EmbeddingService {
           `Generated ${embeddings.length} embeddings via OpenRouter (${this.openRouterEmbeddingModel}) [${this.expectedDimensions}d]`,
         );
         return embeddings;
-      } catch (err: any) {
-        primaryError = err;
+      } catch (err: unknown) {
+        primaryError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
-          `Primary OpenRouter embedding failed, trying fallback: ${err.message}`,
+          `Primary OpenRouter embedding failed, trying fallback: ${primaryError.message}`,
         );
       }
     } else {
@@ -99,12 +109,14 @@ export class EmbeddingService {
           `Generated ${embeddings.length} embeddings via Cloudflare fallback (${this.cloudflareEmbeddingModel}) [${this.expectedDimensions}d]`,
         );
         return embeddings;
-      } catch (cfErr: any) {
+      } catch (cfErr: unknown) {
+        const cfErrorMsg =
+          cfErr instanceof Error ? cfErr.message : String(cfErr);
         this.logger.error(
-          `Cloudflare fallback embedding failed: ${cfErr.message}`,
+          `Cloudflare fallback embedding failed: ${cfErrorMsg}`,
         );
         throw new InternalServerErrorException(
-          `All embedding providers failed. Primary: ${primaryError?.message}. Fallback: ${cfErr.message}`,
+          `All embedding providers failed. Primary: ${primaryError?.message}. Fallback: ${cfErrorMsg}`,
         );
       }
     }
@@ -135,7 +147,9 @@ export class EmbeddingService {
     });
 
     if (!response.data || !Array.isArray(response.data)) {
-      throw new Error('Invalid response structure from OpenRouter embedding API');
+      throw new Error(
+        'Invalid response structure from OpenRouter embedding API',
+      );
     }
 
     return response.data
@@ -162,10 +176,10 @@ export class EmbeddingService {
       );
     }
 
-    const json = await response.json();
-    if (!json.success && json.errors && json.errors.length > 0) {
+    const json = (await response.json()) as CloudflareAiResponse;
+    if (json.success === false && json.errors && json.errors.length > 0) {
       const errMsgs = json.errors
-        .map((e: any) => e.message || JSON.stringify(e))
+        .map((e) => e.message || JSON.stringify(e))
         .join(', ');
       throw new Error(`Cloudflare Workers AI error: ${errMsgs}`);
     }

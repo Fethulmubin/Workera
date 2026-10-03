@@ -1,4 +1,8 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 
@@ -23,7 +27,8 @@ export class LLMService {
   private readonly baseURL: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('OPENROUTER_API_KEY') || undefined;
+    this.apiKey =
+      this.configService.get<string>('OPENROUTER_API_KEY') || undefined;
     this.baseURL =
       this.configService.get<string>('OPENROUTER_BASE_URL') ||
       'https://openrouter.ai/api/v1';
@@ -89,9 +94,16 @@ export class LLMService {
       });
 
       return response.choices[0]?.message?.content?.trim() || '';
-    } catch (err: any) {
-      this.logger.error(`OpenRouter generation error: ${err.message}`, err.stack);
-      throw new InternalServerErrorException(`LLM generation failed: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error ? err.stack : undefined;
+      this.logger.error(
+        `OpenRouter generation error: ${errorMessage}`,
+        errorStack,
+      );
+      throw new InternalServerErrorException(
+        `LLM generation failed: ${errorMessage}`,
+      );
     }
   }
 
@@ -134,10 +146,15 @@ export class LLMService {
       }
 
       return tokenGenerator();
-    } catch (err: any) {
-      this.logger.error(`OpenRouter stream generation error: ${err.message}`, err.stack);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error ? err.stack : undefined;
+      this.logger.error(
+        `OpenRouter stream generation error: ${errorMessage}`,
+        errorStack,
+      );
       throw new InternalServerErrorException(
-        `LLM stream generation failed: ${err.message}`,
+        `LLM stream generation failed: ${errorMessage}`,
       );
     }
   }

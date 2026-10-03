@@ -6,9 +6,9 @@ jest.mock('openai');
 
 describe('EmbeddingService', () => {
   let service: EmbeddingService;
-  let mockConfigService: any;
+  let mockConfigService: { get: jest.Mock };
   let mockEmbeddingsCreate: jest.Mock;
-  const mock768Vector = new Array(768).fill(0.05);
+  const mock768Vector: number[] = Array.from({ length: 768 }, () => 0.05);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -23,16 +23,20 @@ describe('EmbeddingService', () => {
     mockConfigService = {
       get: jest.fn((key: string) => {
         if (key === 'OPENROUTER_API_KEY') return 'test-openrouter-key';
-        if (key === 'OPENROUTER_EMBEDDING_MODEL') return 'google/text-embedding-004';
+        if (key === 'OPENROUTER_EMBEDDING_MODEL')
+          return 'google/text-embedding-004';
         if (key === 'CLOUDFLARE_ACCOUNT_ID') return 'test-cf-account';
         if (key === 'CLOUDFLARE_API_TOKEN') return 'test-cf-token';
-        if (key === 'CLOUDFLARE_EMBEDDING_MODEL') return '@cf/baai/bge-base-en-v1.5';
+        if (key === 'CLOUDFLARE_EMBEDDING_MODEL')
+          return '@cf/baai/bge-base-en-v1.5';
         if (key === 'EMBEDDING_DIMENSIONS') return 768;
         return null;
       }),
     };
 
-    service = new EmbeddingService(mockConfigService as ConfigService);
+    service = new EmbeddingService(
+      mockConfigService as unknown as ConfigService,
+    );
   });
 
   describe('Primary Provider (OpenRouter via OpenAI SDK)', () => {
@@ -75,25 +79,26 @@ describe('EmbeddingService', () => {
     });
 
     it('rejects primary embeddings with invalid dimensions', async () => {
-      const invalidVector = new Array(512).fill(0.1); // 512 != 768
+      const invalidVector: number[] = Array.from({ length: 512 }, () => 0.1);
       mockEmbeddingsCreate.mockResolvedValue({
         data: [{ index: 0, embedding: invalidVector }],
       });
 
-      // Primary fails dimension check -> attempts fallback -> fallback not mocked here, should fail
-      // To test dimension rejection without fallback:
       const noFallbackConfig = {
         get: jest.fn((key: string) => {
           if (key === 'OPENROUTER_API_KEY') return 'test-key';
-          if (key === 'OPENROUTER_EMBEDDING_MODEL') return 'google/text-embedding-004';
+          if (key === 'OPENROUTER_EMBEDDING_MODEL')
+            return 'google/text-embedding-004';
           return null;
         }),
       };
-      const noFallbackService = new EmbeddingService(noFallbackConfig as any);
+      const noFallbackService = new EmbeddingService(
+        noFallbackConfig as unknown as ConfigService,
+      );
 
-      await expect(
-        noFallbackService.generateEmbeddings(['test']),
-      ).rejects.toThrow('Embedding validation failed for primary (OpenRouter): expected 768 dimensions, but received 512');
+      await expect(noFallbackService.generateEmbeddings(['test'])).rejects.toThrow(
+        'Embedding validation failed for primary (OpenRouter): expected 768 dimensions, but received 512',
+      );
     });
   });
 
@@ -103,13 +108,16 @@ describe('EmbeddingService', () => {
 
       const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
         ok: true,
-        json: async () => ({
-          success: true,
-          result: {
-            shape: [1, 768],
-            data: [[...mock768Vector]],
-          },
-        }),
+        json: async () => {
+          await Promise.resolve();
+          return {
+            success: true,
+            result: {
+              shape: [1, 768],
+              data: [[...mock768Vector]],
+            },
+          };
+        },
       } as Response);
 
       const result = await service.generateEmbeddings(['fallback text']);
@@ -133,16 +141,19 @@ describe('EmbeddingService', () => {
     it('rejects fallback embeddings with invalid dimensions', async () => {
       mockEmbeddingsCreate.mockRejectedValue(new Error('OpenRouter error'));
 
-      const invalidVector = new Array(1024).fill(0.2); // 1024 != 768
+      const invalidVector: number[] = Array.from({ length: 1024 }, () => 0.2);
       const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
         ok: true,
-        json: async () => ({
-          success: true,
-          result: {
-            shape: [1, 1024],
-            data: [invalidVector],
-          },
-        }),
+        json: async () => {
+          await Promise.resolve();
+          return {
+            success: true,
+            result: {
+              shape: [1, 1024],
+              data: [invalidVector],
+            },
+          };
+        },
       } as Response);
 
       await expect(
@@ -159,12 +170,14 @@ describe('EmbeddingService', () => {
           return null;
         }),
       };
-      const noFallbackService = new EmbeddingService(noFallbackConfig as any);
+      const noFallbackService = new EmbeddingService(
+        noFallbackConfig as unknown as ConfigService,
+      );
       mockEmbeddingsCreate.mockRejectedValue(new Error('Network timeout'));
 
-      await expect(
-        noFallbackService.generateEmbeddings(['test']),
-      ).rejects.toThrow('Primary embedding failed (Network timeout) and Cloudflare Workers AI fallback is not configured.');
+      await expect(noFallbackService.generateEmbeddings(['test'])).rejects.toThrow(
+        'Primary embedding failed (Network timeout) and Cloudflare Workers AI fallback is not configured.',
+      );
     });
   });
 });
