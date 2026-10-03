@@ -8,9 +8,9 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import { VectorStoreService } from "../rag/vector-store.service";
 import { EmbeddingService } from "../rag/embedding.service";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ConfigService } from "@nestjs/config";
 import { Observable, Subject } from "rxjs";
+import { LLMService, ChatMessage } from "../llm/llm.service";
 
 export interface ChatIdentity {
   userId?: string;
@@ -20,17 +20,14 @@ export interface ChatIdentity {
 @Injectable()
 export class AgentExecutionService {
   private readonly logger = new Logger(AgentExecutionService.name);
-  private genAI: GoogleGenerativeAI;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly vectorStoreService: VectorStoreService,
     private readonly embeddingService: EmbeddingService,
     private readonly configService: ConfigService,
-  ) {
-    const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
-    this.genAI = new GoogleGenerativeAI(apiKey);
-  }
+    private readonly llmService: LLMService,
+  ) {}
 
   private resolveIdentity(
     identityOrUserId: string | ChatIdentity,
@@ -181,22 +178,16 @@ INSTRUCTIONS:
       take: 10,
     });
 
-    const contents = history.map((msg) => ({
-      role: msg.role === "assistant" ? "model" : "user",
-      parts: [{ text: msg.content }],
-    }));
+    const messages: ChatMessage[] = [
+      { role: "system", content: systemPrompt },
+      ...history.slice(0, -1).map((msg) => ({
+        role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
+        content: msg.content,
+      })),
+      { role: "user", content: userMessage },
+    ];
 
-    const modelName =
-      this.configService.get<string>("GEMINI_MODEL") || "gemini-3.6-flash";
-    const model = this.genAI.getGenerativeModel({ model: modelName });
-    const chat = model.startChat({
-      history: contents.slice(0, -1), // Exclude latest message added directly
-    });
-
-    const result = await chat.sendMessage(
-      `${systemPrompt}\n\nUser: ${userMessage}`,
-    );
-    const responseText = result.response.text();
+    const responseText = await this.llmService.generateCompletion(messages);
 
     // 7. Save Assistant Response with Citations Metadata
     const citations = retrievedChunks.map((c) => ({
@@ -332,26 +323,20 @@ INSTRUCTIONS:
           take: 10,
         });
 
-        const contents = history.map((msg) => ({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }],
-        }));
+        const messages: ChatMessage[] = [
+          { role: "system", content: systemPrompt },
+          ...history.slice(0, -1).map((msg) => ({
+            role: msg.role === "assistant" ? ("assistant" as const) : ("user" as const),
+            content: msg.content,
+          })),
+          { role: "user", content: userMessage },
+        ];
 
-        // 6. Gemini Stream Execution
-        const modelName =
-          this.configService.get<string>("GEMINI_MODEL") || "gemini-3.6-flash";
-        const model = this.genAI.getGenerativeModel({ model: modelName });
-        const chat = model.startChat({
-          history: contents.slice(0, -1),
-        });
-
-        const resultStream = await chat.sendMessageStream(
-          `${systemPrompt}\n\nUser: ${userMessage}`,
-        );
+        // 6. OpenRouter Stream Execution via LLMService
+        const tokenStream = await this.llmService.streamCompletion(messages);
 
         let fullContent = "";
-        for await (const chunk of resultStream.stream) {
-          const textChunk = chunk.text();
+        for await (const textChunk of tokenStream) {
           fullContent += textChunk;
           stream$.next({
             data: JSON.stringify({ type: "token", content: textChunk }),

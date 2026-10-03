@@ -9,6 +9,7 @@ import {
   SupervisorChatDto,
 } from './dto/supervisor-chat.dto';
 import { AgentType, type Conversation } from '@ai-workforce/database';
+import { LLMService } from '../llm/llm.service';
 
 @Injectable()
 export class AgentSupervisorService {
@@ -20,6 +21,7 @@ export class AgentSupervisorService {
     private readonly prisma: PrismaService,
     private readonly agentExecutionService: AgentExecutionService,
     private readonly configService: ConfigService,
+    private readonly llmService?: LLMService,
   ) {
     this.openRouterApiKey =
       this.configService.get<string>('OPENROUTER_API_KEY') || '';
@@ -316,37 +318,53 @@ INSTRUCTIONS:
 4. Output valid JSON ONLY. Do not write markdown blocks or additional prose.`;
 
     try {
-      const response = await fetch(
-        'https://openrouter.ai/api/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.openRouterApiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://ai-workforce.local', // Recommended by OpenRouter
-            'X-Title': 'AI Workforce Supervisor',
-          },
-          body: JSON.stringify({
+      let rawContent: string | undefined;
+
+      if (this.llmService?.isConfigured()) {
+        rawContent = await this.llmService.generateCompletion(
+          [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          {
             model: this.routerModel,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userMessage },
-            ],
-            response_format: { type: 'json_object' },
+            responseFormat: { type: 'json_object' },
             temperature: 0.1,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `OpenRouter router call failed (${response.status}): ${errorText}`,
+          },
         );
-      }
+      } else {
+        const response = await fetch(
+          'https://openrouter.ai/api/v1/chat/completions',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${this.openRouterApiKey}`,
+              'Content-Type': 'application/json',
+              'HTTP-Referer': 'https://ai-workforce.local', // Recommended by OpenRouter
+              'X-Title': 'AI Workforce Supervisor',
+            },
+            body: JSON.stringify({
+              model: this.routerModel,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userMessage },
+              ],
+              response_format: { type: 'json_object' },
+              temperature: 0.1,
+            }),
+          },
+        );
 
-      const data = await response.json();
-      const rawContent = data.choices?.[0]?.message?.content?.trim();
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `OpenRouter router call failed (${response.status}): ${errorText}`,
+          );
+        }
+
+        const data = await response.json();
+        rawContent = data.choices?.[0]?.message?.content?.trim();
+      }
 
       if (!rawContent) {
         throw new Error('Empty response from Jev Router');

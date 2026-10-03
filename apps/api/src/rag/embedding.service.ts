@@ -1,129 +1,202 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
+import OpenAI from 'openai';
 
 @Injectable()
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
-  private readonly genAI?: GoogleGenerativeAI;
+  private readonly openAiClient?: OpenAI;
   private readonly openRouterApiKey?: string;
-  private readonly openRouterModel: string;
-  private readonly geminiModel = 'text-embedding-004';
+  private readonly openRouterEmbeddingModel: string;
+  private readonly cloudflareAccountId?: string;
+  private readonly cloudflareApiToken?: string;
+  private readonly cloudflareEmbeddingModel: string;
+  private readonly expectedDimensions: number;
 
   constructor(private readonly configService: ConfigService) {
-    const geminiKey = this.configService.get<string>('GEMINI_API_KEY');
-    if (geminiKey) {
-      this.genAI = new GoogleGenerativeAI(geminiKey);
-    }
+    this.openRouterApiKey =
+      this.configService.get<string>('OPENROUTER_API_KEY') || undefined;
+    const openRouterBaseUrl =
+      this.configService.get<string>('OPENROUTER_BASE_URL') ||
+      'https://openrouter.ai/api/v1';
 
-    this.openRouterApiKey = this.configService.get<string>('OPENROUTER_API_KEY');
-    let model =
-      this.configService.get<string>('OPENROUTER_EMBED_MODEL') || 'baai/bge-base-en-v1.5';
-    if (model.includes('nemotron') || model.includes('2048')) {
-      model = 'baai/bge-base-en-v1.5';
+    this.openRouterEmbeddingModel =
+      this.configService.get<string>('OPENROUTER_EMBEDDING_MODEL') ||
+      this.configService.get<string>('OPENROUTER_EMBED_MODEL') ||
+      'google/text-embedding-004';
+
+    this.cloudflareAccountId =
+      this.configService.get<string>('CLOUDFLARE_ACCOUNT_ID') || undefined;
+    this.cloudflareApiToken =
+      this.configService.get<string>('CLOUDFLARE_API_TOKEN') || undefined;
+    this.cloudflareEmbeddingModel =
+      this.configService.get<string>('CLOUDFLARE_EMBEDDING_MODEL') ||
+      '@cf/baai/bge-base-en-v1.5';
+
+    const configuredDims = this.configService.get<number | string>(
+      'EMBEDDING_DIMENSIONS',
+    );
+    this.expectedDimensions = configuredDims ? Number(configuredDims) : 768;
+
+    if (this.openRouterApiKey) {
+      this.openAiClient = new OpenAI({
+        apiKey: this.openRouterApiKey,
+        baseURL: openRouterBaseUrl,
+        defaultHeaders: {
+          'HTTP-Referer': 'https://ai-workforce.local',
+          'X-Title': 'Workera AI Workforce',
+        },
+      });
+    } else {
+      this.logger.warn(
+        'OPENROUTER_API_KEY not set. Primary embedding provider will be unavailable.',
+      );
     }
-    this.openRouterModel = model;
+  }
+
+  getExpectedDimensions(): number {
+    return this.expectedDimensions;
+  }
+
+  isCloudflareConfigured(): boolean {
+    return Boolean(this.cloudflareAccountId && this.cloudflareApiToken);
   }
 
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
     if (!texts.length) return [];
 
-    // 1. Try OpenRouter if configured
-    if (this.openRouterApiKey) {
+    let primaryError: Error | null = null;
+
+    // 1. Try Primary: OpenRouter (Gemini embedding via OpenAI SDK)
+    if (this.openAiClient) {
       try {
-        return await this.generateOpenRouterBatch(texts);
+        const embeddings = await this.generateOpenRouterBatch(texts);
+        this.validateDimensions(embeddings, 'primary (OpenRouter)');
+        this.logger.debug(
+          `Generated ${embeddings.length} embeddings via OpenRouter (${this.openRouterEmbeddingModel}) [${this.expectedDimensions}d]`,
+        );
+        return embeddings;
       } catch (err: any) {
-        this.logger.warn(`OpenRouter batch embedding failed, trying fallback: ${err.message}`);
+        primaryError = err;
+        this.logger.warn(
+          `Primary OpenRouter embedding failed, trying fallback: ${err.message}`,
+        );
       }
+    } else {
+      primaryError = new Error('OPENROUTER_API_KEY not configured');
     }
 
-    // 2. Fallback to Gemini if configured
-    if (this.genAI) {
+    // 2. Try Fallback: Cloudflare Workers AI (@cf/baai/bge-base-en-v1.5)
+    if (this.isCloudflareConfigured()) {
       try {
-        return await this.generateGeminiBatch(texts);
-      } catch (err: any) {
-        this.logger.error(`Gemini document embedding failed: ${err.message}`);
-        throw new InternalServerErrorException(`Embedding generation failed: ${err.message}`);
+        const embeddings = await this.generateCloudflareBatch(texts);
+        this.validateDimensions(embeddings, 'fallback (Cloudflare Workers AI)');
+        this.logger.log(
+          `Generated ${embeddings.length} embeddings via Cloudflare fallback (${this.cloudflareEmbeddingModel}) [${this.expectedDimensions}d]`,
+        );
+        return embeddings;
+      } catch (cfErr: any) {
+        this.logger.error(
+          `Cloudflare fallback embedding failed: ${cfErr.message}`,
+        );
+        throw new InternalServerErrorException(
+          `All embedding providers failed. Primary: ${primaryError?.message}. Fallback: ${cfErr.message}`,
+        );
       }
     }
 
     throw new InternalServerErrorException(
-      'No valid embedding provider configured. Set OPENROUTER_API_KEY or GEMINI_API_KEY in .env',
+      `Primary embedding failed (${primaryError?.message}) and Cloudflare Workers AI fallback is not configured.`,
     );
   }
 
   async generateQueryEmbedding(query: string): Promise<number[]> {
-    // 1. Try OpenRouter if configured
-    if (this.openRouterApiKey) {
-      try {
-        const results = await this.generateOpenRouterBatch([query]);
-        return results[0];
-      } catch (err: any) {
-        this.logger.warn(`OpenRouter query embedding failed, trying fallback: ${err.message}`);
-      }
+    const embeddings = await this.generateEmbeddings([query]);
+    if (!embeddings.length || !embeddings[0]) {
+      throw new InternalServerErrorException(
+        'Failed to generate query embedding: empty response',
+      );
     }
-
-    // 2. Fallback to Gemini if configured
-    if (this.genAI) {
-      try {
-        const model = this.genAI.getGenerativeModel({ model: this.geminiModel });
-        const response = await model.embedContent({
-          content: { parts: [{ text: query }], role: 'user' },
-          taskType: TaskType.RETRIEVAL_QUERY,
-        });
-        return response.embedding.values;
-      } catch (err: any) {
-        throw new InternalServerErrorException(`Query embedding failed: ${err.message}`);
-      }
-    }
-
-    throw new InternalServerErrorException(
-      'No valid embedding provider configured. Set OPENROUTER_API_KEY or GEMINI_API_KEY in .env',
-    );
+    return embeddings[0];
   }
 
   private async generateOpenRouterBatch(texts: string[]): Promise<number[][]> {
-    const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
+    if (!this.openAiClient) {
+      throw new Error('OpenAI client for OpenRouter not initialized');
+    }
+
+    const response = await this.openAiClient.embeddings.create({
+      model: this.openRouterEmbeddingModel,
+      input: texts,
+    });
+
+    if (!response.data || !Array.isArray(response.data)) {
+      throw new Error('Invalid response structure from OpenRouter embedding API');
+    }
+
+    return response.data
+      .sort((a, b) => a.index - b.index)
+      .map((item) => item.embedding);
+  }
+
+  private async generateCloudflareBatch(texts: string[]): Promise<number[][]> {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${this.cloudflareAccountId}/ai/run/${this.cloudflareEmbeddingModel}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.openRouterApiKey}`,
+        Authorization: `Bearer ${this.cloudflareApiToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: this.openRouterModel,
-        input: texts,
-      }),
+      body: JSON.stringify({ text: texts }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`OpenRouter API error (${response.status}): ${errorText}`);
+      throw new Error(
+        `Cloudflare Workers AI API error (${response.status}): ${errorText}`,
+      );
     }
 
-    const data = await response.json();
-    if (!data.data || !Array.isArray(data.data)) {
-      throw new Error('Invalid response structure from OpenRouter embedding API');
+    const json = await response.json();
+    if (!json.success && json.errors && json.errors.length > 0) {
+      const errMsgs = json.errors
+        .map((e: any) => e.message || JSON.stringify(e))
+        .join(', ');
+      throw new Error(`Cloudflare Workers AI error: ${errMsgs}`);
     }
 
-    // Sort by index if returned out of order
-    return data.data
-      .sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
-      .map((item: any) => item.embedding);
+    const data = json.result?.data;
+    if (!data || !Array.isArray(data)) {
+      throw new Error(
+        'Invalid response structure from Cloudflare Workers AI embedding API',
+      );
+    }
+
+    if (Array.isArray(data[0])) {
+      return data as number[][];
+    } else if (typeof data[0] === 'number') {
+      return [data as number[]];
+    }
+
+    throw new Error('Unexpected data format from Cloudflare Workers AI');
   }
 
-  private async generateGeminiBatch(texts: string[]): Promise<number[][]> {
-    if (!this.genAI) throw new Error('Gemini AI not initialized');
-    const model = this.genAI.getGenerativeModel({ model: this.geminiModel });
-    const results: number[][] = [];
-
-    for (const text of texts) {
-      const response = await model.embedContent({
-        content: { parts: [{ text }], role: 'user' },
-        taskType: TaskType.RETRIEVAL_DOCUMENT,
-      });
-      results.push(response.embedding.values);
+  private validateDimensions(
+    embeddings: number[][],
+    providerLabel: string,
+  ): void {
+    for (let i = 0; i < embeddings.length; i++) {
+      const emb = embeddings[i];
+      if (!Array.isArray(emb) || emb.length !== this.expectedDimensions) {
+        throw new Error(
+          `Embedding validation failed for ${providerLabel}: expected ${this.expectedDimensions} dimensions, but received ${emb?.length ?? 0}`,
+        );
+      }
     }
-
-    return results;
   }
 }

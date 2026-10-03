@@ -5,12 +5,12 @@ import { PublicAgentsController } from "./public-agents.controller";
 import { PublicChatRateLimitGuard } from "./guards/public-chat-rate-limit.guard";
 import { TenantModule } from "../tenant/tenant.module";
 import { RagModule } from "../rag/rag.module";
-import { AuthModule } from "../auth/auth.module";
 import { AgentExecutionService } from "./agent-execution.service";
 import { AgentSupervisorService } from "./agent-supervisor.service";
+import { LLMModule } from "../llm/llm.module";
 
 @Module({
-  imports: [TenantModule, RagModule, AuthModule],
+  imports: [TenantModule, RagModule, AuthModule, LLMModule],
   controllers: [AgentsController, PublicAgentsController],
   providers: [
     AgentsService,

@@ -124,17 +124,27 @@ describe("Phase 4 — Agent Management, Configuration & Public Chat", () => {
       add: jest.fn(),
     };
 
+    const mockLLMService = {
+      generateCompletion: jest.fn().mockResolvedValue("LLM agent response"),
+      streamCompletion: jest.fn().mockReturnValue((async function* () {
+        yield "Stream chunk";
+      })()),
+      isConfigured: jest.fn().mockReturnValue(true),
+    };
+
     agentsService = new AgentsService(mockPrisma);
     executionService = new AgentExecutionService(
       mockPrisma,
       mockVectorStore,
       mockEmbeddingService,
       mockConfigService,
+      mockLLMService as any,
     );
     supervisorService = new AgentSupervisorService(
       mockPrisma,
       executionService,
       mockConfigService,
+      mockLLMService as any,
     );
     kbService = new KnowledgeBaseService(
       mockPrisma,
@@ -147,24 +157,6 @@ describe("Phase 4 — Agent Management, Configuration & Public Chat", () => {
       mockPrisma,
       executionService,
     );
-
-    // Mock Google Generative AI
-    (executionService as any).genAI = {
-      getGenerativeModel: jest.fn().mockReturnValue({
-        startChat: jest.fn().mockReturnValue({
-          sendMessage: jest.fn().mockResolvedValue({
-            response: {
-              text: () => "LLM agent response",
-            },
-          }),
-          sendMessageStream: jest.fn().mockResolvedValue({
-            stream: (async function* () {
-              yield { text: () => "Stream chunk" };
-            })(),
-          }),
-        }),
-      }),
-    };
   });
 
   const createMockContext = (

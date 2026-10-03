@@ -23,7 +23,6 @@
   "dependencies": {
     "@ai-workforce/database": "workspace:*",
     "@ai-workforce/logger": "workspace:*",
-    "@google/generative-ai": "^0.24.1",
     "@nestjs/bullmq": "^12.0.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
@@ -41,6 +40,7 @@
     "mammoth": "^1.12.3",
     "multer": "^2.2.0",
     "nestjs-pino": "^4.6.1",
+    "openai": "^7.27.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdf-parse": "^2.4.5",
