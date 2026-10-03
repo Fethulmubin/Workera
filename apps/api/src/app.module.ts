@@ -10,6 +10,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { AgentsModule } from './agents/agents.module';
 import { LoggerModule } from 'nestjs-pino';
 import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
+import { ConversationsModule } from './conversations/conversations.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
     OrganizationsModule,
     AgentsModule,
     KnowledgeBaseModule,
+    ConversationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
