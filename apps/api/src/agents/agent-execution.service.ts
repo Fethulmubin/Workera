@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   Logger,
@@ -10,6 +11,11 @@ import { EmbeddingService } from "../rag/embedding.service";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ConfigService } from "@nestjs/config";
 import { Observable, Subject } from "rxjs";
+
+export interface ChatIdentity {
+  userId?: string;
+  anonymousSessionId?: string;
+}
 
 @Injectable()
 export class AgentExecutionService {
@@ -26,18 +32,33 @@ export class AgentExecutionService {
     this.genAI = new GoogleGenerativeAI(apiKey);
   }
 
+  private resolveIdentity(
+    identityOrUserId: string | ChatIdentity,
+  ): ChatIdentity {
+    if (typeof identityOrUserId === "string") {
+      return { userId: identityOrUserId };
+    }
+    return identityOrUserId;
+  }
+
   private async findOwnedConversation(
     conversationId: string,
     organizationId: string,
     agentId: string,
-    userId: string,
+    identity: ChatIdentity,
   ) {
+    if (!identity.userId && !identity.anonymousSessionId) {
+      throw new BadRequestException("User or anonymous session identity is required");
+    }
+
     const conversation = await this.prisma.conversation.findFirst({
       where: {
         id: conversationId,
         organizationId,
         agentId,
-        userId,
+        ...(identity.userId
+          ? { userId: identity.userId }
+          : { anonymousSessionId: identity.anonymousSessionId }),
       },
     });
 
@@ -78,8 +99,10 @@ INSTRUCTIONS:
     agentId: string,
     userMessage: string,
     conversationId: string | undefined,
-    userId: string,
+    identityOrUserId: string | ChatIdentity,
   ) {
+    const identity = this.resolveIdentity(identityOrUserId);
+
     // 1. Fetch Agent configuration
     const agent = await this.prisma.agent.findFirst({
       where: { id: agentId, organizationId },
@@ -95,6 +118,12 @@ INSTRUCTIONS:
       );
     }
 
+    if (identity.anonymousSessionId && !agent.isPublic) {
+      throw new ForbiddenException(
+        "This agent is private and cannot be accessed anonymously",
+      );
+    }
+
     // 2. Ensure Conversation exists and validate ownership
     let activeConversationId = conversationId;
     if (!activeConversationId) {
@@ -102,7 +131,9 @@ INSTRUCTIONS:
         data: {
           organizationId,
           agentId,
-          userId,
+          ...(identity.userId
+            ? { userId: identity.userId }
+            : { anonymousSessionId: identity.anonymousSessionId }),
           title: userMessage.slice(0, 40),
         },
       });
@@ -112,7 +143,7 @@ INSTRUCTIONS:
         activeConversationId,
         organizationId,
         agentId,
-        userId,
+        identity,
       );
     }
 
@@ -196,9 +227,10 @@ INSTRUCTIONS:
     agentId: string,
     userMessage: string,
     conversationId: string | undefined,
-    userId: string,
+    identityOrUserId: string | ChatIdentity,
   ): Observable<{ data: string }> {
     const stream$ = new Subject<{ data: string }>();
+    const identity = this.resolveIdentity(identityOrUserId);
 
     (async () => {
       try {
@@ -217,6 +249,12 @@ INSTRUCTIONS:
           );
         }
 
+        if (identity.anonymousSessionId && !agent.isPublic) {
+          throw new ForbiddenException(
+            "This agent is private and cannot be accessed anonymously",
+          );
+        }
+
         // 2. Ensure Conversation exists and validate ownership
         let activeConversationId = conversationId;
         if (!activeConversationId) {
@@ -224,7 +262,9 @@ INSTRUCTIONS:
             data: {
               organizationId,
               agentId,
-              userId,
+              ...(identity.userId
+                ? { userId: identity.userId }
+                : { anonymousSessionId: identity.anonymousSessionId }),
               title: userMessage.slice(0, 40),
             },
           });
@@ -234,7 +274,7 @@ INSTRUCTIONS:
             activeConversationId,
             organizationId,
             agentId,
-            userId,
+            identity,
           );
         }
 

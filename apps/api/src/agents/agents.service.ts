@@ -17,6 +17,7 @@ export class AgentsService {
         type: dto.type ?? AgentType.CUSTOM,
         systemPrompt: dto.systemPrompt,
         isActive: dto.isActive ?? true,
+        isPublic: dto.isPublic ?? false,
       },
     });
   }
@@ -85,6 +86,7 @@ export class AgentsService {
           systemPrompt: dto.systemPrompt,
         }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        ...(dto.isPublic !== undefined && { isPublic: dto.isPublic }),
       },
     });
   }

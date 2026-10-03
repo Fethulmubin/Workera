@@ -63,6 +63,7 @@ model Agent {
   type           AgentType @default(CUSTOM)
   systemPrompt   String?
   isActive       Boolean   @default(true)
+  isPublic       Boolean   @default(false)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -71,6 +72,7 @@ model Agent {
   conversations  Conversation[]
 
   @@index([organizationId])
+  @@index([organizationId, isPublic])
 }
 
 model KnowledgeBase {
@@ -137,7 +139,8 @@ model Conversation {
   id             String   @id @default(cuid())
   organizationId String
   agentId        String
-  userId         String
+  userId         String?
+  anonymousSessionId String?
   title          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -147,7 +150,9 @@ model Conversation {
 
   @@index([organizationId, agentId])
   @@index([organizationId, userId])
+  @@index([organizationId, anonymousSessionId])
   @@index([userId])
+  @@index([anonymousSessionId])
 }
 
 model Message {

@@ -33,4 +33,8 @@ export class CreateAgentDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isPublic?: boolean;
 }
