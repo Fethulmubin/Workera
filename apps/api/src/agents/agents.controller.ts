@@ -18,6 +18,7 @@ import { UpdateAgentDto } from './dto/update-agent.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { TenantGuard } from '../tenant/tenant.guard';
 import { CurrentTenant } from '../tenant/current-tenant.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 import type { TenantContext } from '../tenant/tenant.types';
 import { AgentExecutionService } from './agent-execution.service';
 import { SupervisorChatDto } from './dto/supervisor-chat.dto';
@@ -68,136 +69,152 @@ export class AgentsController {
   }
 
   @Post(':id/chat')
-async chatWithAgent(
-  @CurrentTenant() tenant: TenantContext,
-  @Param('id') agentId: string,
-  @Body() body: { message: string; conversationId?: string },
-) {
-  if (!body.message) {
-    throw new BadRequestException('Message is required');
-  }
-  return this.agentExecutionService.executeChat(
-    tenant.organizationId,
-    agentId,
-    body.message,
-    body.conversationId,
-  );
-}
-
-@Post(':id/chat/stream')
-chatStreamWithAgent(
-  @CurrentTenant() tenant: TenantContext,
-  @Param('id') agentId: string,
-  @Body() body: { message: string; conversationId?: string },
-  @Res() res: Response,
-): void {
-  if (!body.message) {
-    throw new BadRequestException('Message is required');
+  async chatWithAgent(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser('userId') userId: string,
+    @Param('id') agentId: string,
+    @Body() body: { message: string; conversationId?: string },
+  ) {
+    if (!body.message) {
+      throw new BadRequestException('Message is required');
+    }
+    return this.agentExecutionService.executeChat(
+      tenant.organizationId,
+      agentId,
+      body.message,
+      body.conversationId,
+      userId,
+    );
   }
 
-  // 1. Set standard SSE headers for chunked HTTP streaming
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Disables Nginx buffering if deployed behind a proxy
+  @Post(':id/chat/stream')
+  chatStreamWithAgent(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser('userId') userId: string,
+    @Param('id') agentId: string,
+    @Body() body: { message: string; conversationId?: string },
+    @Res() res: Response,
+  ): void {
+    if (!body.message) {
+      throw new BadRequestException('Message is required');
+    }
 
-  // 2. Fetch the stream from service
-  const stream$ = this.agentExecutionService.executeChatStream(
-    tenant.organizationId,
-    agentId,
-    body.message,
-    body.conversationId,
-  );
+    // 1. Set standard SSE headers for chunked HTTP streaming
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disables Nginx buffering if deployed behind a proxy
 
-  // 3. Subscribe to the Observable and write SSE formatted data blocks
-  const subscription = stream$.subscribe({
-    next: (event) => {
-      res.write(`data: ${event.data}\n\n`);
-    },
-    error: (err) => {
-      res.write(
-        `data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`,
-      );
-      res.end();
-    },
-    complete: () => {
-      res.end();
-    },
-  });
+    // 2. Fetch the stream from service
+    const stream$ = this.agentExecutionService.executeChatStream(
+      tenant.organizationId,
+      agentId,
+      body.message,
+      body.conversationId,
+      userId,
+    );
 
-  // 4. Handle premature client disconnects (e.g., closing browser tab or canceling request)
-  res.on('close', () => {
-    subscription.unsubscribe();
-  });
-}
-/**
- * 1. Dry-run inspect which agent will take over the prompt
- */
-@Post('supervisor/route')
-async previewRoute(
-  @CurrentTenant() tenant: TenantContext,
-  @Body() dto: SupervisorChatDto,
-) {
-  if (!dto.message) {
-    throw new BadRequestException('Message is required');
+    // 3. Subscribe to the Observable and write SSE formatted data blocks
+    const subscription = stream$.subscribe({
+      next: (event) => {
+        res.write(`data: ${event.data}\n\n`);
+      },
+      error: (err) => {
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`,
+        );
+        res.end();
+      },
+      complete: () => {
+        res.end();
+      },
+    });
+
+    // 4. Handle premature client disconnects (e.g., closing browser tab or canceling request)
+    res.on('close', () => {
+      subscription.unsubscribe();
+    });
   }
-  return this.agentSupervisorService.routeRequest(
-    tenant.organizationId,
-    dto.message,
-    dto.conversationId,
-    dto.forceReRoute,
-  );
-}
-/**
- * 2. Supervised Chat (Route + Execute)
- */
-@Post('supervisor/chat')
-async chatWithSupervisor(
-  @CurrentTenant() tenant: TenantContext,
-  @Body() dto: SupervisorChatDto,
-) {
-  if (!dto.message) {
-    throw new BadRequestException('Message is required');
+
+  /**
+   * 1. Dry-run inspect which agent will take over the prompt
+   */
+  @Post('supervisor/route')
+  async previewRoute(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser('userId') userId: string,
+    @Body() dto: SupervisorChatDto,
+  ) {
+    if (!dto.message) {
+      throw new BadRequestException('Message is required');
+    }
+    return this.agentSupervisorService.routeRequest(
+      tenant.organizationId,
+      dto.message,
+      dto.conversationId,
+      dto.forceReRoute,
+      userId,
+    );
   }
-  return this.agentSupervisorService.executeSupervisedChat(tenant.organizationId, dto);
-}
-/**
- * 3. Supervised Streaming Chat (Route + Stream SSE)
- */
-@Post('supervisor/chat/stream')
-chatStreamWithSupervisor(
-  @CurrentTenant() tenant: TenantContext,
-  @Body() dto: SupervisorChatDto,
-  @Res() res: Response,
-): void {
-  if (!dto.message) {
-    throw new BadRequestException('Message is required');
+
+  /**
+   * 2. Supervised Chat (Route + Execute)
+   */
+  @Post('supervisor/chat')
+  async chatWithSupervisor(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser('userId') userId: string,
+    @Body() dto: SupervisorChatDto,
+  ) {
+    if (!dto.message) {
+      throw new BadRequestException('Message is required');
+    }
+    return this.agentSupervisorService.executeSupervisedChat(
+      tenant.organizationId,
+      dto,
+      userId,
+    );
   }
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  const stream$ = this.agentSupervisorService.executeSupervisedChatStream(
-    tenant.organizationId,
-    dto,
-  );
-  const subscription = stream$.subscribe({
-    next: (event) => {
-      res.write(`data: ${event.data}\n\n`);
-    },
-    error: (err) => {
-      res.write(
-        `data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`,
-      );
-      res.end();
-    },
-    complete: () => {
-      res.end();
-    },
-  });
-  res.on('close', () => {
-    subscription.unsubscribe();
-  });
-}
+
+  /**
+   * 3. Supervised Streaming Chat (Route + Stream SSE)
+   */
+  @Post('supervisor/chat/stream')
+  chatStreamWithSupervisor(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser('userId') userId: string,
+    @Body() dto: SupervisorChatDto,
+    @Res() res: Response,
+  ): void {
+    if (!dto.message) {
+      throw new BadRequestException('Message is required');
+    }
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    const stream$ = this.agentSupervisorService.executeSupervisedChatStream(
+      tenant.organizationId,
+      dto,
+      userId,
+    );
+    const subscription = stream$.subscribe({
+      next: (event) => {
+        res.write(`data: ${event.data}\n\n`);
+      },
+      error: (err) => {
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`,
+        );
+        res.end();
+      },
+      complete: () => {
+        res.end();
+      },
+    });
+    res.on('close', () => {
+      subscription.unsubscribe();
+    });
+  }
 }
 
