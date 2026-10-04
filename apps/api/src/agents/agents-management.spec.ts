@@ -108,9 +108,7 @@ describe("Phase 4 — Agent Management, Configuration & Public Chat", () => {
     mockConfigService = {
       get: jest.fn((key: string) => {
         if (key === "GEMINI_API_KEY") return "mock-gemini-key";
-        if (key === "GEMINI_MODEL") return "gemini-3.6-flash";
         if (key === "OPENROUTER_API_KEY") return "mock-openrouter-key";
-        if (key === "OPENROUTER_ROUTER_MODEL") return "typesafe/jev-router";
         return "";
       }),
     };
@@ -137,13 +135,11 @@ describe("Phase 4 — Agent Management, Configuration & Public Chat", () => {
       mockPrisma,
       mockVectorStore,
       mockEmbeddingService,
-      mockConfigService,
       mockLLMService as any,
     );
     supervisorService = new AgentSupervisorService(
       mockPrisma,
       executionService,
-      mockConfigService,
       mockLLMService as any,
     );
     kbService = new KnowledgeBaseService(

@@ -1,34 +1,19 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 import { ConfigService } from '@nestjs/config';
 import { EmbeddingService } from './embedding.service';
-import OpenAI from 'openai';
 
-jest.mock('openai');
-
-describe('EmbeddingService', () => {
+describe('EmbeddingService (Google Gemini API Direct)', () => {
   let service: EmbeddingService;
   let mockConfigService: { get: jest.Mock };
-  let mockEmbeddingsCreate: jest.Mock;
   const mock768Vector: number[] = Array.from({ length: 768 }, () => 0.05);
 
   beforeEach(() => {
     jest.clearAllMocks();
 
-    mockEmbeddingsCreate = jest.fn();
-    (OpenAI as unknown as jest.Mock).mockImplementation(() => ({
-      embeddings: {
-        create: mockEmbeddingsCreate,
-      },
-    }));
-
     mockConfigService = {
       get: jest.fn((key: string) => {
-        if (key === 'OPENROUTER_API_KEY') return 'test-openrouter-key';
-        if (key === 'OPENROUTER_EMBEDDING_MODEL')
-          return 'google/text-embedding-004';
-        if (key === 'CLOUDFLARE_ACCOUNT_ID') return 'test-cf-account';
-        if (key === 'CLOUDFLARE_API_TOKEN') return 'test-cf-token';
-        if (key === 'CLOUDFLARE_EMBEDDING_MODEL')
-          return '@cf/baai/bge-base-en-v1.5';
+        if (key === 'GEMINI_API_KEY') return 'test-gemini-key';
+        if (key === 'GEMINI_EMBEDDING_MODEL') return 'gemini-embedding-001';
         if (key === 'EMBEDDING_DIMENSIONS') return 768;
         return null;
       }),
@@ -39,145 +24,174 @@ describe('EmbeddingService', () => {
     );
   });
 
-  describe('Primary Provider (OpenRouter via OpenAI SDK)', () => {
-    it('initializes with expected 768 dimensions', () => {
+  describe('Configuration & Initialization', () => {
+    it('initializes with gemini-embedding-001 and expected 768 dimensions', () => {
       expect(service.getExpectedDimensions()).toBe(768);
-      expect(service.isCloudflareConfigured()).toBe(true);
+      expect(service.getModel()).toBe('gemini-embedding-001');
     });
 
-    it('generates batch embeddings successfully with 768 dimensions', async () => {
-      mockEmbeddingsCreate.mockResolvedValue({
-        data: [
-          { index: 0, embedding: [...mock768Vector] },
-          { index: 1, embedding: [...mock768Vector] },
-        ],
-      });
-
-      const result = await service.generateEmbeddings(['doc 1', 'doc 2']);
-
-      expect(result).toHaveLength(2);
-      expect(result[0]).toHaveLength(768);
-      expect(result[1]).toHaveLength(768);
-      expect(mockEmbeddingsCreate).toHaveBeenCalledWith({
-        model: 'google/text-embedding-004',
-        input: ['doc 1', 'doc 2'],
-      });
+    it('returns empty array when no texts provided', async () => {
+      const result = await service.generateEmbeddings([]);
+      expect(result).toEqual([]);
     });
 
-    it('generates query embedding successfully with 768 dimensions', async () => {
-      mockEmbeddingsCreate.mockResolvedValue({
-        data: [{ index: 0, embedding: [...mock768Vector] }],
-      });
-
-      const result = await service.generateQueryEmbedding('search query');
-
-      expect(result).toHaveLength(768);
-      expect(mockEmbeddingsCreate).toHaveBeenCalledWith({
-        model: 'google/text-embedding-004',
-        input: ['search query'],
-      });
-    });
-
-    it('rejects primary embeddings with invalid dimensions', async () => {
-      const invalidVector: number[] = Array.from({ length: 512 }, () => 0.1);
-      mockEmbeddingsCreate.mockResolvedValue({
-        data: [{ index: 0, embedding: invalidVector }],
-      });
-
-      const noFallbackConfig = {
-        get: jest.fn((key: string) => {
-          if (key === 'OPENROUTER_API_KEY') return 'test-key';
-          if (key === 'OPENROUTER_EMBEDDING_MODEL')
-            return 'google/text-embedding-004';
-          return null;
-        }),
+    it('throws error when GEMINI_API_KEY is not configured', async () => {
+      const unconfiguredConfig = {
+        get: jest.fn(() => null),
       };
-      const noFallbackService = new EmbeddingService(
-        noFallbackConfig as unknown as ConfigService,
+      const unconfiguredService = new EmbeddingService(
+        unconfiguredConfig as unknown as ConfigService,
       );
 
-      await expect(noFallbackService.generateEmbeddings(['test'])).rejects.toThrow(
-        'Embedding validation failed for primary (OpenRouter): expected 768 dimensions, but received 512',
-      );
+      await expect(
+        unconfiguredService.generateEmbeddings(['test']),
+      ).rejects.toThrow('GEMINI_API_KEY is not configured in environment');
+
+      await expect(
+        unconfiguredService.generateQueryEmbedding('test query'),
+      ).rejects.toThrow('GEMINI_API_KEY is not configured in environment');
     });
   });
 
-  describe('Fallback Provider (Cloudflare Workers AI)', () => {
-    it('invokes Cloudflare Workers AI fallback when primary OpenRouter fails', async () => {
-      mockEmbeddingsCreate.mockRejectedValue(new Error('OpenRouter 500 error'));
-
+  describe('Batch Document Embeddings (batchEmbedContents)', () => {
+    it('calls Google Gemini batchEmbedContents directly with outputDimensionality 768', async () => {
       const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
         ok: true,
         json: async () => {
           await Promise.resolve();
           return {
-            success: true,
-            result: {
-              shape: [1, 768],
-              data: [[...mock768Vector]],
+            embeddings: [
+              { values: [...mock768Vector] },
+              { values: [...mock768Vector] },
+            ],
+          };
+        },
+      } as Response);
+
+      const result = await service.generateEmbeddings(['doc 1', 'doc 2']);
+
+      expect(mockFetch).toHaveBeenCalled();
+      const calledUrl = mockFetch.mock.calls[0]?.[0];
+      const calledInit = mockFetch.mock.calls[0]?.[1];
+
+      expect(calledUrl).toContain(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents',
+      );
+      expect(calledUrl).toContain('key=test-gemini-key');
+
+      const body = JSON.parse(calledInit?.body as string);
+      expect(body.requests).toHaveLength(2);
+      expect(body.requests[0]).toEqual({
+        model: 'models/gemini-embedding-001',
+        content: { parts: [{ text: 'doc 1' }] },
+        taskType: 'RETRIEVAL_DOCUMENT',
+        outputDimensionality: 768,
+      });
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toHaveLength(768);
+      expect(result[1]).toHaveLength(768);
+
+      mockFetch.mockRestore();
+    });
+
+    it('rejects batch embeddings if dimension mismatch occurs', async () => {
+      const invalidVector: number[] = Array.from({ length: 512 }, () => 0.1);
+      const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => {
+          await Promise.resolve();
+          return {
+            embeddings: [{ values: invalidVector }],
+          };
+        },
+      } as Response);
+
+      await expect(
+        service.generateEmbeddings(['document mismatch']),
+      ).rejects.toThrow(
+        'Embedding dimension mismatch at index 0: expected 768, received 512',
+      );
+
+      mockFetch.mockRestore();
+    });
+
+    it('throws when Gemini API returns an error response', async () => {
+      const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => {
+          await Promise.resolve();
+          return 'Bad Request: invalid argument';
+        },
+      } as Response);
+
+      await expect(
+        service.generateEmbeddings(['document error']),
+      ).rejects.toThrow('Gemini batch embedding failed: HTTP 400');
+
+      mockFetch.mockRestore();
+    });
+  });
+
+  describe('Query Embedding (embedContent)', () => {
+    it('calls Google Gemini embedContent directly with taskType RETRIEVAL_QUERY and 768 dimensions', async () => {
+      const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => {
+          await Promise.resolve();
+          return {
+            embedding: {
+              values: [...mock768Vector],
             },
           };
         },
       } as Response);
 
-      const result = await service.generateEmbeddings(['fallback text']);
+      const result = await service.generateQueryEmbedding('Search query');
 
-      expect(mockEmbeddingsCreate).toHaveBeenCalled();
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.cloudflare.com/client/v4/accounts/test-cf-account/ai/run/@cf/baai/bge-base-en-v1.5',
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer test-cf-token',
-          }),
-        }),
+      expect(mockFetch).toHaveBeenCalled();
+      const calledUrl = mockFetch.mock.calls[0]?.[0];
+      const calledInit = mockFetch.mock.calls[0]?.[1];
+
+      expect(calledUrl).toContain(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent',
       );
-      expect(result).toHaveLength(1);
-      expect(result[0]).toHaveLength(768);
+      expect(calledUrl).toContain('key=test-gemini-key');
+
+      const body = JSON.parse(calledInit?.body as string);
+      expect(body).toEqual({
+        content: { parts: [{ text: 'Search query' }] },
+        taskType: 'RETRIEVAL_QUERY',
+        outputDimensionality: 768,
+      });
+
+      expect(result).toHaveLength(768);
 
       mockFetch.mockRestore();
     });
 
-    it('rejects fallback embeddings with invalid dimensions', async () => {
-      mockEmbeddingsCreate.mockRejectedValue(new Error('OpenRouter error'));
-
+    it('rejects query embedding if dimension mismatch occurs', async () => {
       const invalidVector: number[] = Array.from({ length: 1024 }, () => 0.2);
       const mockFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
         ok: true,
         json: async () => {
           await Promise.resolve();
           return {
-            success: true,
-            result: {
-              shape: [1, 1024],
-              data: [invalidVector],
+            embedding: {
+              values: invalidVector,
             },
           };
         },
       } as Response);
 
       await expect(
-        service.generateEmbeddings(['invalid cf dimension']),
-      ).rejects.toThrow('expected 768 dimensions, but received 1024');
+        service.generateQueryEmbedding('query mismatch'),
+      ).rejects.toThrow(
+        'Embedding dimension mismatch: expected 768, received 1024',
+      );
 
       mockFetch.mockRestore();
-    });
-
-    it('throws clean exception when primary fails and Cloudflare fallback is not configured', async () => {
-      const noFallbackConfig = {
-        get: jest.fn((key: string) => {
-          if (key === 'OPENROUTER_API_KEY') return 'test-key';
-          return null;
-        }),
-      };
-      const noFallbackService = new EmbeddingService(
-        noFallbackConfig as unknown as ConfigService,
-      );
-      mockEmbeddingsCreate.mockRejectedValue(new Error('Network timeout'));
-
-      await expect(noFallbackService.generateEmbeddings(['test'])).rejects.toThrow(
-        'Primary embedding failed (Network timeout) and Cloudflare Workers AI fallback is not configured.',
-      );
     });
   });
 });

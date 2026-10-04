@@ -231,14 +231,12 @@ describe('RBAC and Conversation Security', () => {
         mockPrisma as unknown as PrismaService,
         mockVectorStore as unknown as VectorStoreService,
         mockEmbeddingService as unknown as EmbeddingService,
-        mockConfigService as unknown as ConfigService,
         mockLLMService as any,
       );
 
       supervisorService = new AgentSupervisorService(
         mockPrisma as unknown as PrismaService,
         executionService,
-        mockConfigService as unknown as ConfigService,
         mockLLMService as any,
       );
     });

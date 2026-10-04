@@ -8,7 +8,6 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import { VectorStoreService } from "../rag/vector-store.service";
 import { EmbeddingService } from "../rag/embedding.service";
-import { ConfigService } from "@nestjs/config";
 import { Observable, Subject } from "rxjs";
 import { LLMService, ChatMessage } from "../llm/llm.service";
 
@@ -25,7 +24,6 @@ export class AgentExecutionService {
     private readonly prisma: PrismaService,
     private readonly vectorStoreService: VectorStoreService,
     private readonly embeddingService: EmbeddingService,
-    private readonly configService: ConfigService,
     private readonly llmService: LLMService,
   ) {}
 

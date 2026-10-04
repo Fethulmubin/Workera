@@ -1,5 +1,4 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Observable, Subject } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { AgentExecutionService } from './agent-execution.service';
@@ -14,53 +13,47 @@ import { LLMService } from '../llm/llm.service';
 @Injectable()
 export class AgentSupervisorService {
   private readonly logger = new Logger(AgentSupervisorService.name);
-  private readonly openRouterApiKey: string;
-  private readonly routerModel: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentExecutionService: AgentExecutionService,
-    private readonly configService: ConfigService,
-    private readonly llmService?: LLMService,
-  ) {
-    this.openRouterApiKey =
-      this.configService.get<string>('OPENROUTER_API_KEY') || '';
-    this.routerModel =
-      this.configService.get<string>('OPENROUTER_ROUTER_MODEL') ||
-      'typesafe/jev-router';
-  }
+    private readonly llmService: LLMService,
+  ) {}
 
   /**
- * Ensures an organization always has at least one active General Agent.
- */
-private async getOrCreateDefaultGeneralAgent(organizationId: string) {
-  const org = await this.prisma.organization.findUnique({
-    where: { id: organizationId },
-    select: { name: true },
-  });
+   * Ensures an organization always has at least one active General Agent.
+   */
+  private async getOrCreateDefaultGeneralAgent(organizationId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true },
+    });
 
-  const orgName = org?.name || 'Company';
+    const orgName = org?.name || 'Company';
 
-  this.logger.log(`Auto-provisioning default General Agent for organization: ${organizationId}`);
+    this.logger.log(
+      `Auto-provisioning default General Agent for organization: ${organizationId}`,
+    );
 
-  return this.prisma.agent.create({
-    data: {
-      organizationId,
-      name: `${orgName} Assistant`,
-      type: AgentType.GENERAL,
-      description: 'Primary organization assistant for general inquiries, drafting, and workplace productivity.',
-      systemPrompt: `You are the primary General Workplace Assistant for ${orgName}.
+    return this.prisma.agent.create({
+      data: {
+        organizationId,
+        name: `${orgName} Assistant`,
+        type: AgentType.GENERAL,
+        description:
+          'Primary organization assistant for general inquiries, drafting, and workplace productivity.',
+        systemPrompt: `You are the primary General Workplace Assistant for ${orgName}.
 Assist employees and team members with workplace productivity, questions, drafting, and general support.`,
-      isActive: true,
-    },
-    select: {
-      id: true,
-      name: true,
-      type: true,
-      description: true,
-    },
-  });
-}
+        isActive: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        description: true,
+      },
+    });
+  }
 
   /**
    * Route an incoming prompt to the most suitable agent in the organization.
@@ -87,7 +80,12 @@ Assist employees and team members with workplace productivity, questions, drafti
         throw new NotFoundException('Conversation not found');
       }
 
-      if (existingConv && existingConv.agent && existingConv.agent.isActive !== false && !forceReRoute) {
+      if (
+        existingConv &&
+        existingConv.agent &&
+        existingConv.agent.isActive !== false &&
+        !forceReRoute
+      ) {
         return {
           selectedAgentId: existingConv.agentId,
           agentName: existingConv.agent.name,
@@ -125,8 +123,8 @@ Assist employees and team members with workplace productivity, questions, drafti
       };
     }
 
-    // 4. Call typesafe/jev-router via OpenRouter
-    return this.classifyWithJevRouter(availableAgents, userMessage);
+    // 4. Classify agent via LLM
+    return this.classifyAgent(availableAgents, userMessage);
   }
 
   /**
@@ -272,9 +270,9 @@ Assist employees and team members with workplace productivity, questions, drafti
   }
 
   /**
-   * Send agent definitions and query to OpenRouter using typesafe/jev-router.
+   * Send agent definitions and query to LLMService to route to best agent.
    */
-  private async classifyWithJevRouter(
+  private async classifyAgent(
     agents: Array<{
       id: string;
       name: string;
@@ -283,14 +281,11 @@ Assist employees and team members with workplace productivity, questions, drafti
     }>,
     userMessage: string,
   ): Promise<RoutingDecision> {
-    if (!this.openRouterApiKey) {
+    if (!this.llmService.isConfigured()) {
       this.logger.warn(
-        'OPENROUTER_API_KEY is missing. Falling back to default agent.',
+        'LLMService is not configured. Falling back to default agent.',
       );
-      return this.fallbackDecision(
-        agents,
-        'OPENROUTER_API_KEY not configured.',
-      );
+      return this.fallbackDecision(agents, 'LLMService not configured.');
     }
 
     const agentsCatalog = agents.map((a) => ({
@@ -318,69 +313,36 @@ INSTRUCTIONS:
 4. Output valid JSON ONLY. Do not write markdown blocks or additional prose.`;
 
     try {
-      let rawContent: string | undefined;
-
-      if (this.llmService?.isConfigured()) {
-        rawContent = await this.llmService.generateCompletion(
-          [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
-          ],
-          {
-            model: this.routerModel,
-            responseFormat: { type: 'json_object' },
-            temperature: 0.1,
-          },
-        );
-      } else {
-        const response = await fetch(
-          'https://openrouter.ai/api/v1/chat/completions',
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${this.openRouterApiKey}`,
-              'Content-Type': 'application/json',
-              'HTTP-Referer': 'https://ai-workforce.local', // Recommended by OpenRouter
-              'X-Title': 'AI Workforce Supervisor',
-            },
-            body: JSON.stringify({
-              model: this.routerModel,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userMessage },
-              ],
-              response_format: { type: 'json_object' },
-              temperature: 0.1,
-            }),
-          },
-        );
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(
-            `OpenRouter router call failed (${response.status}): ${errorText}`,
-          );
-        }
-
-        const data = await response.json();
-        rawContent = data.choices?.[0]?.message?.content?.trim();
-      }
+      const rawContent = await this.llmService.generateCompletion(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        {
+          responseFormat: { type: 'json_object' },
+          temperature: 0.1,
+        },
+      );
 
       if (!rawContent) {
-        throw new Error('Empty response from Jev Router');
+        throw new Error('Empty response from LLM router');
       }
 
       // Parse JSON from router output
-      const parsed = JSON.parse(rawContent);
+      const parsed = JSON.parse(rawContent) as {
+        selectedAgentId?: string;
+        confidence?: number;
+        reason?: string;
+      };
       const chosenAgent = agents.find((a) => a.id === parsed.selectedAgentId);
 
       if (!chosenAgent) {
         this.logger.warn(
-          `Router returned non-existent agentId: ${parsed.selectedAgentId}. Falling back.`,
+          `Supervisor router returned non-existent agentId: ${parsed.selectedAgentId}. Falling back.`,
         );
         return this.fallbackDecision(
           agents,
-          'Router suggested unknown agent ID.',
+          'Supervisor router suggested unknown agent ID.',
         );
       }
 
@@ -391,13 +353,14 @@ INSTRUCTIONS:
           typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
         reason: parsed.reason || 'Agent matched user intent.',
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       this.logger.error(
-        `Error during Jev Router evaluation: ${err.message}. Using fallback agent.`,
+        `Error during supervisor evaluation: ${errorMessage}. Using fallback agent.`,
       );
       return this.fallbackDecision(
         agents,
-        `Router evaluation fallback: ${err.message}`,
+        `Supervisor evaluation fallback: ${errorMessage}`,
       );
     }
   }
