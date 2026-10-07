@@ -122,11 +122,16 @@ describe("Phase 4 — Agent Management, Configuration & Public Chat", () => {
       add: jest.fn(),
     };
 
-    const mockLLMService = {
-      generateCompletion: jest.fn().mockResolvedValue("LLM agent response"),
-      streamCompletion: jest.fn().mockReturnValue((async function* () {
+    const mockAIService = {
+      generateText: jest.fn().mockResolvedValue("AI agent response"),
+      streamText: jest.fn().mockReturnValue((async function* () {
         yield "Stream chunk";
       })()),
+      generateObject: jest.fn().mockResolvedValue({
+        selectedAgentId: "agent-aaa",
+        confidence: 0.9,
+        reason: "Best match for prompt",
+      }),
       isConfigured: jest.fn().mockReturnValue(true),
     };
 
@@ -135,12 +140,12 @@ describe("Phase 4 — Agent Management, Configuration & Public Chat", () => {
       mockPrisma,
       mockVectorStore,
       mockEmbeddingService,
-      mockLLMService as any,
+      mockAIService as any,
     );
     supervisorService = new AgentSupervisorService(
       mockPrisma,
       executionService,
-      mockLLMService as any,
+      mockAIService as any,
     );
     kbService = new KnowledgeBaseService(
       mockPrisma,

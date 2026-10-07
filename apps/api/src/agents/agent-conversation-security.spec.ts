@@ -219,11 +219,16 @@ describe('RBAC and Conversation Security', () => {
         }),
       };
 
-      const mockLLMService = {
-        generateCompletion: jest.fn().mockResolvedValue('Assistant response text'),
-        streamCompletion: jest.fn().mockReturnValue((async function* () {
+      const mockAIService = {
+        generateText: jest.fn().mockResolvedValue('Assistant response text'),
+        streamText: jest.fn().mockReturnValue((async function* () {
           yield 'token1';
         })()),
+        generateObject: jest.fn().mockResolvedValue({
+          selectedAgentId: mockAgentId,
+          confidence: 0.95,
+          reason: 'Matched role',
+        }),
         isConfigured: jest.fn().mockReturnValue(true),
       };
 
@@ -231,13 +236,13 @@ describe('RBAC and Conversation Security', () => {
         mockPrisma as unknown as PrismaService,
         mockVectorStore as unknown as VectorStoreService,
         mockEmbeddingService as unknown as EmbeddingService,
-        mockLLMService as any,
+        mockAIService as any,
       );
 
       supervisorService = new AgentSupervisorService(
         mockPrisma as unknown as PrismaService,
         executionService,
-        mockLLMService as any,
+        mockAIService as any,
       );
     });
 
