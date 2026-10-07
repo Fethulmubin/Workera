@@ -8,7 +8,18 @@ import {
   SupervisorChatDto,
 } from './dto/supervisor-chat.dto';
 import { AgentType, type Conversation } from '@ai-workforce/database';
-import { LLMService } from '../llm/llm.service';
+import { AIService } from '../ai/ai.service';
+import { z } from 'zod';
+
+const routingDecisionSchema = z.object({
+  selectedAgentId: z.string().describe('ID of chosen agent'),
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe('Confidence score between 0.0 and 1.0'),
+  reason: z.string().describe('Brief justification in one sentence'),
+});
 
 @Injectable()
 export class AgentSupervisorService {
@@ -17,7 +28,7 @@ export class AgentSupervisorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentExecutionService: AgentExecutionService,
-    private readonly llmService: LLMService,
+    private readonly aiService: AIService,
   ) {}
 
   /**
@@ -123,7 +134,7 @@ Assist employees and team members with workplace productivity, questions, drafti
       };
     }
 
-    // 4. Classify agent via LLM
+    // 4. Classify agent via AI
     return this.classifyAgent(availableAgents, userMessage);
   }
 
@@ -270,7 +281,7 @@ Assist employees and team members with workplace productivity, questions, drafti
   }
 
   /**
-   * Send agent definitions and query to LLMService to route to best agent.
+   * Send agent definitions and query to AIService to route to best agent using structured output.
    */
   private async classifyAgent(
     agents: Array<{
@@ -281,11 +292,11 @@ Assist employees and team members with workplace productivity, questions, drafti
     }>,
     userMessage: string,
   ): Promise<RoutingDecision> {
-    if (!this.llmService.isConfigured()) {
+    if (!this.aiService.isConfigured()) {
       this.logger.warn(
-        'LLMService is not configured. Falling back to default agent.',
+        'AIService is not configured. Falling back to default agent.',
       );
-      return this.fallbackDecision(agents, 'LLMService not configured.');
+      return this.fallbackDecision(agents, 'AIService not configured.');
     }
 
     const agentsCatalog = agents.map((a) => ({
@@ -303,37 +314,23 @@ ${JSON.stringify(agentsCatalog, null, 2)}
 
 INSTRUCTIONS:
 1. Compare the user's intent with the agent descriptions and types.
-2. Output strictly a JSON object with this structure:
-{
-  "selectedAgentId": "<ID of chosen agent>",
-  "confidence": <number between 0.0 and 1.0>,
-  "reason": "<brief justification in one sentence>"
-}
-3. If no specialized agent clearly matches, choose the agent with type 'GENERAL' or the closest general helper.
-4. Output valid JSON ONLY. Do not write markdown blocks or additional prose.`;
+2. Select the single best-suited agent ID and explain the reason.
+3. If no specialized agent clearly matches, choose the agent with type 'GENERAL' or the closest general helper.`;
 
     try {
-      const rawContent = await this.llmService.generateCompletion(
+      const parsed = await this.aiService.generateObject(
         [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
         {
-          responseFormat: { type: 'json_object' },
+          schema: routingDecisionSchema,
+          schemaName: 'RoutingDecision',
+          schemaDescription: 'Decision routing a user prompt to the best agent',
           temperature: 0.1,
         },
       );
 
-      if (!rawContent) {
-        throw new Error('Empty response from LLM router');
-      }
-
-      // Parse JSON from router output
-      const parsed = JSON.parse(rawContent) as {
-        selectedAgentId?: string;
-        confidence?: number;
-        reason?: string;
-      };
       const chosenAgent = agents.find((a) => a.id === parsed.selectedAgentId);
 
       if (!chosenAgent) {
