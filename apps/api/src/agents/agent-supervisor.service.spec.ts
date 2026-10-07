@@ -16,7 +16,7 @@ describe('AgentSupervisorService', () => {
     id: 'agent-tech',
     organizationId: mockOrgId,
     name: 'Tech Support',
-    type: AgentType.CUSTOMER_SUPPORT,
+    type: AgentType.HR,
     description: 'Handles technical and IT queries',
     isActive: true,
   };
@@ -24,7 +24,7 @@ describe('AgentSupervisorService', () => {
     id: 'agent-billing',
     organizationId: mockOrgId,
     name: 'Billing Support',
-    type: AgentType.SALES,
+    type: AgentType.FINANCE,
     description: 'Handles invoices and refunds',
     isActive: true,
   };
