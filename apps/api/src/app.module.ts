@@ -11,7 +11,7 @@ import { AgentsModule } from './agents/agents.module';
 import { LoggerModule } from 'nestjs-pino';
 import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import { ConversationsModule } from './conversations/conversations.module';
-import { LLMModule } from './llm/llm.module';
+import { AIModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -52,7 +52,7 @@ import { LLMModule } from './llm/llm.module';
     AgentsModule,
     KnowledgeBaseModule,
     ConversationsModule,
-    LLMModule,
+    AIModule,
   ],
   controllers: [AppController],
   providers: [AppService],
