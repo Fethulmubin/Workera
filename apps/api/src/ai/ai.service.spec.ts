@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { AIService } from './ai.service';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { generateText, streamText, generateObject } from 'ai';
+import { generateText, streamText, Output } from 'ai';
 import { z } from 'zod';
 
 jest.mock('@openrouter/ai-sdk-provider');
@@ -148,7 +148,7 @@ describe('AIService', () => {
     );
   });
 
-  it('generates structured object correctly using AI SDK generateObject with Zod schema', async () => {
+  it('generates structured object correctly using AI SDK generateText with Output.object and Zod schema', async () => {
     const testSchema = z.object({
       selectedAgentId: z.string(),
       confidence: z.number(),
@@ -161,8 +161,8 @@ describe('AIService', () => {
       reason: 'Best match',
     };
 
-    (generateObject as unknown as jest.Mock).mockResolvedValue({
-      object: expectedObject,
+    (generateText as unknown as jest.Mock).mockResolvedValue({
+      output: expectedObject,
     });
 
     const messages = [{ role: 'user' as const, content: 'Route this' }];
@@ -173,11 +173,13 @@ describe('AIService', () => {
     });
 
     expect(result).toEqual(expectedObject);
-    expect(generateObject).toHaveBeenCalledWith(
+    expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: mockModel,
-        schema: testSchema,
-        schemaName: 'RoutingDecision',
+        output: expect.objectContaining({
+          schema: testSchema,
+          name: 'RoutingDecision',
+        }),
         temperature: 0.1,
       }),
     );

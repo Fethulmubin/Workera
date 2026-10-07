@@ -6,13 +6,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
-  generateObject,
   generateText,
   streamText,
+  Output,
   type LanguageModel,
   type ModelMessage,
 } from 'ai';
-import type { ZodSchema } from 'zod';
+import type { ZodType } from 'zod';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -26,7 +26,7 @@ export interface TextGenerationOptions {
 }
 
 export interface ObjectGenerationOptions<T> {
-  schema: ZodSchema<T>;
+  schema: ZodType<T>;
   model?: string;
   temperature?: number;
   maxTokens?: number;
@@ -172,17 +172,19 @@ export class AIService {
     const model = this.getModel(options?.model);
 
     try {
-      const result = await generateObject({
+      const result = await generateText({
         model,
         messages: this.mapMessages(messages),
-        schema: options.schema,
-        schemaName: options.schemaName,
-        schemaDescription: options.schemaDescription,
+        output: Output.object({
+          schema: options.schema,
+          name: options.schemaName,
+          description: options.schemaDescription,
+        }),
         temperature: options?.temperature ?? 0.1,
         maxOutputTokens: options?.maxTokens,
       });
 
-      return result.object;
+      return result.output as T;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       const errorStack = err instanceof Error ? err.stack : undefined;
