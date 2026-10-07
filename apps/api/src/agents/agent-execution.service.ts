@@ -9,7 +9,7 @@ import { PrismaService } from "../database/prisma.service";
 import { VectorStoreService } from "../rag/vector-store.service";
 import { EmbeddingService } from "../rag/embedding.service";
 import { Observable, Subject } from "rxjs";
-import { LLMService, ChatMessage } from "../llm/llm.service";
+import { AIService, ChatMessage } from "../ai/ai.service";
 
 export interface ChatIdentity {
   userId?: string;
@@ -24,7 +24,7 @@ export class AgentExecutionService {
     private readonly prisma: PrismaService,
     private readonly vectorStoreService: VectorStoreService,
     private readonly embeddingService: EmbeddingService,
-    private readonly llmService: LLMService,
+    private readonly aiService: AIService,
   ) {}
 
   private resolveIdentity(
@@ -185,7 +185,7 @@ INSTRUCTIONS:
       { role: "user", content: userMessage },
     ];
 
-    const responseText = await this.llmService.generateCompletion(messages);
+    const responseText = await this.aiService.generateText(messages);
 
     // 7. Save Assistant Response with Citations Metadata
     const citations = retrievedChunks.map((c) => ({
@@ -330,8 +330,8 @@ INSTRUCTIONS:
           { role: "user", content: userMessage },
         ];
 
-        // 6. OpenRouter Stream Execution via LLMService
-        const tokenStream = await this.llmService.streamCompletion(messages);
+        // 6. AI SDK Stream Execution via AIService
+        const tokenStream = await this.aiService.streamText(messages);
 
         let fullContent = "";
         for await (const textChunk of tokenStream) {
