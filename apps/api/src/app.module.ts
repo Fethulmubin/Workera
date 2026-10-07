@@ -12,6 +12,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { AIModule } from './ai/ai.module';
+import { ToolsModule } from './tools/tools.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { AIModule } from './ai/ai.module';
     KnowledgeBaseModule,
     ConversationsModule,
     AIModule,
+    ToolsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
