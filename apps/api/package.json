@@ -39,6 +39,7 @@
     "cloudinary": "^2.10.0",
     "ioredis": "^6.0.0",
     "jwks-rsa": "^4.1.0",
+    "kenat": "^4.0.0",
     "mammoth": "^1.12.3",
     "multer": "^2.2.0",
     "nestjs-pino": "^4.6.1",

@@ -68,6 +68,9 @@ importers:
       jwks-rsa:
         specifier: ^4.1.0
         version: 4.1.0(supports-color@8.1.1)
+      kenat:
+        specifier: ^4.0.0
+        version: 4.0.0
       mammoth:
         specifier: ^1.12.3
         version: 1.12.3
@@ -3538,6 +3541,10 @@ packages:
 
   jws@4.0.1:
     resolution: {integrity: sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==}
+
+  kenat@4.0.0:
+    resolution: {integrity: sha512-ij1Ud9i4Kbe0ugKzVHVnSdleAhtT6MhtkJFPFlIaiHREwOpY+4z6XIcZ8yK0lypmrD6M9goWkKnHc9DWEO95BQ==}
+    engines: {node: '>=18'}
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
@@ -8818,6 +8825,8 @@ snapshots:
     dependencies:
       jwa: 2.0.1
       safe-buffer: 5.2.1
+
+  kenat@4.0.0: {}
 
   keyv@4.5.4:
     dependencies:
