@@ -8,7 +8,7 @@ export interface ToolContext {
   conversationId?: string;
 }
 
-export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
+export interface ToolDefinition<TInput = any, TOutput = any> {
   name: string;
   description: string;
   inputSchema: ZodType<TInput>;

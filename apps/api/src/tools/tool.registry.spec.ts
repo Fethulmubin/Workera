@@ -1,72 +1,177 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { z } from 'zod';
-import { ToolRegistry } from './tool.registry';
+import { DateTimeTool } from './date-time.tool';
 
-describe('ToolRegistry', () => {
-  const createRegistry = () => new ToolRegistry();
+describe('DateTimeTool', () => {
+  const tool = new DateTimeTool();
 
-  const calculatorTool = {
-    name: 'calculator',
-    description: 'Performs a basic calculation.',
-    inputSchema: z.object({
-      a: z.number(),
-      b: z.number(),
-    }),
-    execute: async (
-      input: { a: number; b: number },
-      _context: { organizationId: string },
-    ) => input.a + input.b,
+  const context = {
+    organizationId: 'org-1',
+    agentId: 'agent-1',
+    userId: 'user-1',
   };
 
-  it('registers and retrieves a tool', () => {
-    const registry = createRegistry();
+  describe('convert', () => {
+    it('converts Gregorian to Ethiopian', async () => {
+      const result = await tool.execute(
+        {
+          action: 'convert',
+          fromCalendar: 'gregorian',
+          toCalendar: 'ethiopian',
+          date: '2026-10-07',
+        },
+        context,
+      );
 
-    registry.register(calculatorTool);
+      expect(result).toMatchObject({
+        action: 'convert',
+        date: '2019-01-27',
+        year: 2019,
+        month: 1,
+        day: 27,
+        monthName: 'Meskerem',
+      });
+    });
 
-    expect(registry.has('calculator')).toBe(true);
-    expect(registry.get('calculator')).toBe(calculatorTool);
-    expect(registry.list()).toHaveLength(1);
+    it('converts Ethiopian to Gregorian', async () => {
+      const result = await tool.execute(
+        {
+          action: 'convert',
+          fromCalendar: 'ethiopian',
+          toCalendar: 'gregorian',
+          date: '2019-01-01',
+        },
+        context,
+      );
+
+      expect(result).toMatchObject({
+        action: 'convert',
+        date: '2026-09-11',
+        year: 2026,
+        month: 9,
+        day: 11,
+      });
+    });
   });
 
-  it('rejects duplicate tool names', () => {
-    const registry = createRegistry();
+  describe('info', () => {
+    it('identifies Pagume', async () => {
+      const result = await tool.execute(
+        {
+          action: 'info',
+          calendar: 'ethiopian',
+          date: '2018-13-05',
+        },
+        context,
+      );
 
-    registry.register(calculatorTool);
+      expect(result).toMatchObject({
+        action: 'info',
+        calendar: 'ethiopian',
+        month: 13,
+        monthName: 'Pagume',
+        isPagume: true,
+        daysInMonth: 5,
+      });
+    });
 
-    expect(() => registry.register(calculatorTool)).toThrow(
-      'Tool "calculator" is already registered',
-    );
+    it('recognizes the Ethiopian leap year', async () => {
+      const result = await tool.execute(
+        {
+          action: 'info',
+          calendar: 'ethiopian',
+          date: '2015-13-06',
+        },
+        context,
+      );
+
+      expect(result).toMatchObject({
+        calendar: 'ethiopian',
+        month: 13,
+        day: 6,
+        isPagume: true,
+        daysInMonth: 6,
+        isLeapYear: true,
+      });
+    });
   });
 
-  it('throws when a tool does not exist', () => {
-    const registry = createRegistry();
+  describe('add', () => {
+    it('adds days to an Ethiopian date', async () => {
+      const result = await tool.execute(
+        {
+          action: 'add',
+          calendar: 'ethiopian',
+          date: '2019-01-01',
+          amount: 20,
+          unit: 'days',
+        },
+        context,
+      );
 
-    expect(() => registry.get('missing')).toThrow(NotFoundException);
+      expect(result).toMatchObject({
+        action: 'add',
+        calendar: 'ethiopian',
+        date: '2019-01-21',
+      });
+    });
+
+    it('handles adding days across Ethiopian New Year', async () => {
+      const result = await tool.execute(
+        {
+          action: 'add',
+          calendar: 'ethiopian',
+          date: '2019-12-30',
+          amount: 1,
+          unit: 'days',
+        },
+        context,
+      );
+
+      expect(result).toMatchObject({
+        date: '2019-13-01',
+      });
+    });
   });
 
-  it('validates input before execution', async () => {
-    const registry = createRegistry();
-    registry.register(calculatorTool);
+  describe('difference', () => {
+    it('calculates Ethiopian day difference', async () => {
+      const result = await tool.execute(
+        {
+          action: 'difference',
+          calendar: 'ethiopian',
+          startDate: '2019-01-01',
+          endDate: '2019-01-10',
+          unit: 'days',
+        },
+        context,
+      );
 
-    await expect(
-      registry.execute(
-        'calculator',
-        { a: 'wrong', b: 2 },
-        { organizationId: 'org-1' },
-      ),
-    ).rejects.toThrow(BadRequestException);
-  });
+      expect(result).toMatchObject({
+        action: 'difference',
+        calendar: 'ethiopian',
+        value: 9,
+      });
+    });
 
-  it('executes a registered tool with validated input', async () => {
-    const registry = createRegistry();
-    registry.register(calculatorTool);
+    it('returns an Ethiopian date breakdown', async () => {
+      const result = await tool.execute(
+        {
+          action: 'difference',
+          calendar: 'ethiopian',
+          startDate: '2019-01-01',
+          endDate: '2019-02-01',
+          unit: 'breakdown',
+        },
+        context,
+      );
 
-    await expect(
-      registry.execute(
-        'calculator',
-        { a: 2, b: 3 },
-        { organizationId: 'org-1' },
-      ),
-    ).resolves.toBe(5);
+      expect(result).toMatchObject({
+        action: 'difference',
+        calendar: 'ethiopian',
+        totalDays: 30,
+        years: 0,
+        months: 1,
+        days: 0,
+      });
+    });
   });
 });
