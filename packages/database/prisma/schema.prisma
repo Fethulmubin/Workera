@@ -29,6 +29,11 @@ enum DocumentStatus {
   FAILED
 }
 
+enum ToolAccessLevel {
+  GLOBAL
+  ASSIGNABLE
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -39,6 +44,7 @@ model Organization {
   members        OrganizationMember[]
   agents         Agent[]
   knowledgeBases KnowledgeBase[]
+  tools          AgentTool[]
 }
 
 model OrganizationMember {
@@ -70,6 +76,7 @@ model Agent {
   organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   knowledgeBases AgentKnowledgeBase[]
   conversations  Conversation[]
+  tools          AgentTool[]
 
   @@index([organizationId])
   @@index([organizationId, isPublic])
@@ -166,4 +173,23 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
+}
+
+model AgentTool {
+  id             String          @id @default(cuid())
+  organizationId String
+  agentId        String?
+  toolName       String
+  accessLevel    ToolAccessLevel @default(ASSIGNABLE)
+  isEnabled      Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent?       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, agentId, toolName])
+  @@index([organizationId, toolName])
+  @@index([organizationId, accessLevel])
+  @@index([agentId])
 }
