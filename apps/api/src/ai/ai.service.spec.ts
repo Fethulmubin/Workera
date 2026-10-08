@@ -87,8 +87,8 @@ describe('AIService', () => {
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: mockModel,
+        instructions: 'You are helpful.',
         messages: [
-          { role: 'system', content: 'You are helpful.' },
           { role: 'user', content: 'Hello!' },
         ],
         temperature: 0.7,

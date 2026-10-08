@@ -11,8 +11,10 @@ import {
   Output,
   type LanguageModel,
   type ModelMessage,
+  isStepCount,
 } from 'ai';
 import type { ZodType } from 'zod';
+import type { Tool } from 'ai';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -23,6 +25,10 @@ export interface TextGenerationOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+}
+export interface ToolGenerationOptions extends TextGenerationOptions {
+  tools?: Record<string, Tool>;
+  maxSteps?: number;
 }
 
 export interface ObjectGenerationOptions<T> {
@@ -50,7 +56,7 @@ export class AIService {
       'https://openrouter.ai/api/v1';
     this.defaultModel =
       this.configService.get<string>('WORKERA_MODEL') ||
-      'meta-llama/llama-3.3-70b-instruct:free';
+      'openrouter/free';
 
     if (this.apiKey) {
       this.provider = createOpenRouter({
@@ -97,16 +103,27 @@ export class AIService {
     return this.provider(modelName);
   }
 
-  private mapMessages(messages: ChatMessage[]): ModelMessage[] {
-    return messages.map((m) => {
+  private splitPrompt(messages: ChatMessage[]): {
+    instructions?: string;
+    messages: ModelMessage[];
+  } {
+    const systemParts: string[] = [];
+    const modelMessages: ModelMessage[] = [];
+
+    for (const m of messages) {
       if (m.role === 'system') {
-        return { role: 'system', content: m.content };
+        systemParts.push(m.content);
+      } else if (m.role === 'user') {
+        modelMessages.push({ role: 'user', content: m.content });
+      } else {
+        modelMessages.push({ role: 'assistant', content: m.content });
       }
-      if (m.role === 'user') {
-        return { role: 'user', content: m.content };
-      }
-      return { role: 'assistant', content: m.content };
-    });
+    }
+
+    const instructions =
+      systemParts.length > 0 ? systemParts.join('\n\n') : undefined;
+
+    return { instructions, messages: modelMessages };
   }
 
   async generateText(
@@ -114,11 +131,13 @@ export class AIService {
     options?: TextGenerationOptions,
   ): Promise<string> {
     const model = this.getModel(options?.model);
+    const { instructions, messages: modelMessages } = this.splitPrompt(messages);
 
     try {
       const result = await generateText({
         model,
-        messages: this.mapMessages(messages),
+        instructions,
+        messages: modelMessages,
         temperature: options?.temperature ?? 0.7,
         maxOutputTokens: options?.maxTokens,
       });
@@ -142,11 +161,13 @@ export class AIService {
     options?: TextGenerationOptions,
   ): Promise<AsyncIterable<string>> {
     const model = this.getModel(options?.model);
+    const { instructions, messages: modelMessages } = this.splitPrompt(messages);
 
     try {
       const result = streamText({
         model,
-        messages: this.mapMessages(messages),
+        instructions,
+        messages: modelMessages,
         temperature: options?.temperature ?? 0.7,
         maxOutputTokens: options?.maxTokens,
       });
@@ -170,11 +191,13 @@ export class AIService {
     options: ObjectGenerationOptions<T>,
   ): Promise<T> {
     const model = this.getModel(options?.model);
+    const { instructions, messages: modelMessages } = this.splitPrompt(messages);
 
     try {
       const result = await generateText({
         model,
-        messages: this.mapMessages(messages),
+        instructions,
+        messages: modelMessages,
         output: Output.object({
           schema: options.schema,
           name: options.schemaName,
@@ -194,6 +217,40 @@ export class AIService {
       );
       throw new InternalServerErrorException(
         `AI structured generation failed: ${errorMessage}`,
+      );
+    }
+  }
+
+  async generateTextWithTools(
+    messages: ChatMessage[],
+    options: ToolGenerationOptions,
+  ): Promise<string> {
+    const model = this.getModel(options.model);
+    const { instructions, messages: modelMessages } = this.splitPrompt(messages);
+
+    try {
+      const result = await generateText({
+        model,
+        instructions,
+        messages: modelMessages,
+        tools: options.tools,
+        stopWhen: isStepCount(options.maxSteps ?? 5),
+        temperature: options.temperature ?? 0.7,
+        maxOutputTokens: options.maxTokens,
+      });
+
+      return result.text.trim();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error ? err.stack : undefined;
+
+      this.logger.error(
+        `AI tool generation error: ${errorMessage}`,
+        errorStack,
+      );
+
+      throw new InternalServerErrorException(
+        `AI tool generation failed: ${errorMessage}`,
       );
     }
   }
