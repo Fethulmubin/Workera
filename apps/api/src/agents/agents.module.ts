@@ -9,9 +9,10 @@ import { AuthModule } from "../auth/auth.module";
 import { AgentExecutionService } from "./agent-execution.service";
 import { AgentSupervisorService } from "./agent-supervisor.service";
 import { AIModule } from "../ai/ai.module";
+import { ToolsModule } from "src/tools/tools.module";
 
 @Module({
-  imports: [TenantModule, RagModule, AuthModule, AIModule],
+  imports: [TenantModule, RagModule, AuthModule, AIModule, ToolsModule],
   controllers: [AgentsController, PublicAgentsController],
   providers: [
     AgentsService,

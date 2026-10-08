@@ -237,6 +237,7 @@ describe('RBAC and Conversation Security', () => {
         mockVectorStore as unknown as VectorStoreService,
         mockEmbeddingService as unknown as EmbeddingService,
         mockAIService as any,
+        { list: () => [], has: () => false, get: () => undefined } as any,
       );
 
       supervisorService = new AgentSupervisorService(

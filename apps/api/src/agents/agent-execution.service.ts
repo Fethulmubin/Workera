@@ -10,6 +10,11 @@ import { VectorStoreService } from "../rag/vector-store.service";
 import { EmbeddingService } from "../rag/embedding.service";
 import { Observable, Subject } from "rxjs";
 import { AIService, ChatMessage } from "../ai/ai.service";
+import { ToolRegistry } from "../tools/tool.registry";
+import { toAISDKTool } from "../tools/ai-sdk-tool.adapter";
+import { ToolContext } from "../tools/types/tool.types";
+import { ToolAccessService } from "../tools/tool-access.service";
+import type { Tool } from "ai";
 
 export interface ChatIdentity {
   userId?: string;
@@ -25,6 +30,8 @@ export class AgentExecutionService {
     private readonly vectorStoreService: VectorStoreService,
     private readonly embeddingService: EmbeddingService,
     private readonly aiService: AIService,
+    private readonly toolRegistry: ToolRegistry,
+    private readonly toolAccessService?: ToolAccessService,
   ) {}
 
   private resolveIdentity(
@@ -63,6 +70,17 @@ export class AgentExecutionService {
 
     return conversation;
   }
+
+  private buildAITools(context: ToolContext) {
+  const definitions = this.toolRegistry.list();
+
+  return Object.fromEntries(
+    definitions.map((definition) => [
+      definition.name,
+      toAISDKTool(definition, context),
+    ]),
+  );
+}
 
   buildSystemPrompt(
     agentPrompt: string | null | undefined,
@@ -185,7 +203,32 @@ INSTRUCTIONS:
       { role: "user", content: userMessage },
     ];
 
-    const responseText = await this.aiService.generateText(messages);
+    // 6. Resolve accessible tools for this agent
+    const toolContext: ToolContext = {
+      organizationId,
+      agentId,
+      userId: identity.userId,
+      anonymousSessionId: identity.anonymousSessionId,
+      conversationId: activeConversationId,
+    };
+
+    let responseText: string;
+    const accessibleTools = this.toolAccessService
+      ? await this.toolAccessService.resolveToolsForAgent(organizationId, agentId)
+      : this.toolRegistry.list();
+
+    if (accessibleTools.length > 0) {
+      const toolMap: Record<string, Tool> = {};
+      for (const def of accessibleTools) {
+        toolMap[def.name] = toAISDKTool(def, toolContext);
+      }
+      responseText = await this.aiService.generateTextWithTools(messages, {
+        tools: toolMap,
+        maxSteps: 5,
+      });
+    } else {
+      responseText = await this.aiService.generateText(messages);
+    }
 
     // 7. Save Assistant Response with Citations Metadata
     const citations = retrievedChunks.map((c) => ({

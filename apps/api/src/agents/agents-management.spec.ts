@@ -141,6 +141,7 @@ describe("Phase 4 — Agent Management, Configuration & Public Chat", () => {
       mockVectorStore,
       mockEmbeddingService,
       mockAIService as any,
+      { list: () => [], has: () => false, get: () => undefined } as any,
     );
     supervisorService = new AgentSupervisorService(
       mockPrisma,
